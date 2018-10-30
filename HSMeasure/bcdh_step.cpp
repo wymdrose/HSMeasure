@@ -35,21 +35,88 @@ const QStringList POS_STEP =
 BCDH_step::BCDH_step(HSMeasure* pHSMeasure)
 	: mpHSMeasure(pHSMeasure)
 {
+	connect(this, SIGNAL(showMsgSignal(const QString&)), mpHSMeasure, SLOT(show_msg(const QString &)));
+
 
 	auto a = arrayStepMap[(SlotposNo3 + 1) * (StepD + 1)];
 	
+	m_pLoadDllfunc = CLoadLJDllFunc::GetInstance();
 
+	laser1_config.IPAddress.S_un.S_un_b.s_b1 = 192;
+	laser1_config.IPAddress.S_un.S_un_b.s_b2 = 168;
+	laser1_config.IPAddress.S_un.S_un_b.s_b3 = 0;
+	laser1_config.IPAddress.S_un.S_un_b.s_b4 = 20;
 
+	laser2_config.IPAddress.S_un.S_un_b.s_b1 = 192;
+	laser2_config.IPAddress.S_un.S_un_b.s_b2 = 168;
+	laser2_config.IPAddress.S_un.S_un_b.s_b3 = 70;
+	laser2_config.IPAddress.S_un.S_un_b.s_b4 = 10;
 
+	laser3_config.IPAddress.S_un.S_un_b.s_b1 = 192;
+	laser3_config.IPAddress.S_un.S_un_b.s_b2 = 168;
+	laser3_config.IPAddress.S_un.S_un_b.s_b3 = 80;
+	laser3_config.IPAddress.S_un.S_un_b.s_b4 = 10;
 
 }
 
 BCDH_step::~BCDH_step()
 {
-
+	qDebug() << "~BCDH_step()";
 }
 
+void BCDH_step::GetOneHeadData(LJIF_PROFILETARGET head, LJIF_OPENPARAM_ETHERNET config, float* buf)
+{
+	int iLSRet;
+	int a = 0;
+	LJIF_PROFILE_INFO profileInfo;
 
+	iLSRet = m_pLoadDllfunc->LJIF_OpenDeviceETHER(&config);
+
+	iLSRet = m_pLoadDllfunc->LJIF_GetProfileData(head, &profileInfo, buf, LSCOUNT);
+
+	m_pLoadDllfunc->LJIF_CloseDevice();
+
+
+	for (int i = 0; i < LSCOUNT; i++)
+	{
+		a = (_isnan((double)buf[i]));
+		if (a)
+		{
+			buf[i] = -999.99;
+		}
+
+	}
+}
+
+void BCDH_step::GetTwoHeadData(LJIF_OPENPARAM_ETHERNET config, float* buf1, float* buf2)
+{
+	int iLSRet;
+	int a = 0, b = 0;
+	LJIF_PROFILE_INFO profileInfo;
+	iLSRet = m_pLoadDllfunc->LJIF_OpenDeviceETHER(&config);
+
+	iLSRet = m_pLoadDllfunc->LJIF_GetProfileData(LJIF_PROFILETARGET_HEAD_A, &profileInfo, buf1, LSCOUNT);
+
+	iLSRet = m_pLoadDllfunc->LJIF_GetProfileData(LJIF_PROFILETARGET_HEAD_B, &profileInfo, buf2, LSCOUNT);
+
+	m_pLoadDllfunc->LJIF_CloseDevice();
+
+
+	for (int i = 0; i < LSCOUNT; i++)
+	{
+		a = (_isnan((double)buf1[i]));
+		b = (_isnan((double)buf2[i]));
+		if (a)
+		{
+			buf1[i] = -999.9999;
+		}
+		if (b)
+		{
+			buf2[i] = -999.9999;
+		}
+
+	}
+}
 
 bool BCDH_step::getPosFromCfg()
 {
@@ -77,7 +144,7 @@ bool BCDH_step::getPosFromCfg()
 		QStringList oneLine = CSVList[i].split(",");
 
 		float posLaser = oneLine[1].toFloat();
-		float posPlat = oneLine[2].toFloat();
+		posPlat = oneLine[2].toFloat();
 
 		posLaserAxis[i - 1] = posLaser;
 	}
@@ -91,17 +158,39 @@ bool BCDH_step::getStepValue(QString posStep, float& stepValue)
 
 	auto a = POS_STEP.indexOf(posStep);
 
-	qDebug() << "posLaserAxis[arrayStepMap[POS_STEP.indexOf(posStep)].laserPos]:" << posLaserAxis[arrayStepMap[POS_STEP.indexOf(posStep)].laserPos];
+	showMsgSignal(QString("posLaserAxis[arrayStepMap[POS_STEP.indexOf(posStep)].laserPos]:%1").arg(posLaserAxis[arrayStepMap[POS_STEP.indexOf(posStep)].laserPos]));
 
-	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->moveAndCheckdone(posLaserAxis[arrayStepMap[a].laserPos], 100000))
+	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->platformAxisNo]->moveAndCheckdone(posPlat, DEFAUL_MOVE_TIME_OUT))
 	{
 		return false;
 	}
 	
-	Sleep(300);
-	//
-	stepValue = 6.0;
+	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->moveAndCheckdone(posLaserAxis[arrayStepMap[a].laserPos], DEFAUL_MOVE_TIME_OUT))
+	{
+		return false;
+	}
+	
 
+	Sleep(300);
+	
+	//arrayStepMap[a].laserNo
+	//
+	float buf1[800];
+
+	GetOneHeadData(LJIF_PROFILETARGET_HEAD_A, laser1_config, buf1);
+
+	for (size_t i = 0; i < 800; i += 10)
+	{
+		if (0 == i % 100)
+		{
+			qDebug() << "\r";
+		}
+
+		qDebug() << buf1[i] << " " << buf1[i + 1] << " " << buf1[i + 2] << " " << buf1[i + 3] << " " << buf1[i + 4] << " " << buf1[i + 5] << " " << buf1[i + 6] << " " << buf1[i + 7] << " " << buf1[i + 8] << " " << buf1[i + 9];
+
+	}
+
+	stepValue = buf1[500];
 
 	return true;
 }

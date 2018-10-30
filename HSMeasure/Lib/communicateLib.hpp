@@ -30,11 +30,15 @@ namespace _COMMUNICATECLASS
 			delete mpSerial;
 		}
 
+		void close()
+		{
+			qDebug() << "close com" << mPortNo << "\r";
+			mpSerial->close();
+		}
+
 		bool open()
 		{
 			mpSerial->close();
-
-			qDebug() << "";
 
 			if (mpSerial->open(QIODevice::ReadWrite)) 
 			{
@@ -51,11 +55,11 @@ namespace _COMMUNICATECLASS
 		qint64 send(const QString sendData)
 		{
 			mRecData.clear();
-
+			mpSerial->clear();
 			QByteArray tSend = sendData.toLocal8Bit();
 
 			qDebug() << "";
-			qDebug() << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss:zzz") << mPortNo << "send:" << tSend << "\r";
+			qDebug() << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss:zzz") << mPortNo << "send:" << tSend;
 		
 			return mpSerial->write(tSend);
 		}
@@ -63,19 +67,35 @@ namespace _COMMUNICATECLASS
 		void recData()
 		{
 
-			mpSerial->waitForReadyRead(300);
+			for (size_t i = 0; i < 3; i++)
+			{
+				while (mpSerial->waitForReadyRead(100))
+				{
+					QByteArray tRec;
+					tRec = mpSerial->readAll();
 
-			QByteArray tRec;
-			tRec = mpSerial->readAll();
+					mRecData += tRec.data();
+				}
+			}
+
+			qDebug() << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss:zzz") << mPortNo << "rec:" << mRecData;
 			
-			mRecData = tRec;
-
-			qDebug() << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss:zzz") << mPortNo << "rec:" << tRec << "\r";
 		}
 
 		QString getRec()
 		{
 			return mRecData;
+		}
+
+		bool communicate(const QString tSend, QString& mRecv)
+		{
+			auto a = send(tSend);
+			
+			qDebug() << "send success?" << a << "\r";
+			recData();
+			mRecv = mRecData;
+
+			return true;
 		}
 
 	private:

@@ -2,6 +2,7 @@
 #include "bcdh_gap.h"
 #include "bcdh_step.h"
 
+
 QString mPath;
 BCDH_gap* mpBCDH_gap;
 BCDH_step* mpBCDH_step
@@ -10,6 +11,7 @@ HSMeasure::HSMeasure(QWidget *parent)
 	: QMainWindow(parent)
 {
 	ui.setupUi(this);
+
 	this->setWindowTitle(QStringLiteral("大族激光IT装备DH测量软件 v1.0.0"));
 	init();
 	initValue();
@@ -18,6 +20,7 @@ HSMeasure::HSMeasure(QWidget *parent)
 	mPath = QCoreApplication::applicationDirPath();
 
 	initDmcCard();
+	login();
 	hsmeasure_para();
 
 	//
@@ -26,28 +29,36 @@ HSMeasure::HSMeasure(QWidget *parent)
 	pIoTimer->start(300);
 
 	//
+	mpBCDH_gap = new BCDH_gap(this);
+	mpBCDH_step = new BCDH_step(this);
+
+	
 }
 
 HSMeasure::~HSMeasure()
 {
-	delete mpTcpClientCcd[0];
-	delete mpTcpClientCcd[1];
 
-	delete mpSerialportCcd[0];
-	delete mpSerialportCcd[1];
+	delete mpBCDH_gap;
+	delete mpBCDH_step;
 
 	delete mpDMC5000Lib;
 }
 
 void HSMeasure::init()
 {
-	this->setFixedSize(985, 650);
+//	this->setFixedSize(985, 650);
+	ui.tabWidget->resize(1085, 640);
 	ui.tabWidget->setTabText(0, QStringLiteral("主界面"));
 	ui.tabWidget->setTabText(1, QStringLiteral("系统参数"));
-	ui.tabWidget->setTabText(2, QStringLiteral("I/O监控"));
+	ui.tabWidget->setTabText(2, QStringLiteral("I/O主板"));
+	ui.tabWidget->setTabText(3, QStringLiteral("I/O扩展"));
 	ui.tabWidget->setCurrentIndex(0);
-	ui.tabWidget->setStyleSheet("QTabWidget:pane{border-top:0px solid #e8f3f9;background:#e8f3f9;}"); 
-	
+	ui.tabWidget->setStyleSheet("QTabWidget:pane{border-top:0px solid #e8f3f9;background:#e8f3f9;}");
+	ui.tabWidget->setTabEnabled(0, true);
+//	ui.tabWidget->setTabEnabled(1, false);
+//	ui.tabWidget->setTabEnabled(2, false);
+	connect(ui.tabWidget, SIGNAL(currentChanged(int)), this, SLOT(onTabWidgetChanged(int)));
+
 	//默认启用4个槽位
 	ui.checkBox_cave1->setCheckState(Qt::Checked);
 	ui.checkBox_cave2->setCheckState(Qt::Checked);
@@ -132,6 +143,10 @@ void HSMeasure::init()
 	model_result->setItem(7, 1, new QStandardItem(para));
 	*/
 
+	//io
+	initUiIo();
+	
+	//
 	connect(ui.pushButtonSaveLog, SIGNAL(clicked()), this, SLOT(save_log()));
 	connect(ui.pushButtonStart, SIGNAL(clicked()), this, SLOT(hs_start()));
 	connect(ui.pushButtonPause, SIGNAL(clicked()), this, SLOT(hs_pause()));
@@ -194,15 +209,169 @@ void HSMeasure::init()
 		}
 	});
 
-//	qRegisterMetaType<STATE_FLOW>("STATE_FLOW");
-//	connect(this, SIGNAL(stateSignal(STATE_FLOW)), this, SLOT(stateSlot(STATE_FLOW)));
+	//
+	for (int i = 0; i < 6; i++)
+	{
+		m_laserEditor[i] = new laserEdit(this);
+		m_laserEditor[i]->set_x_label(QString("laser%1").arg(i + 1));
+	}
 
+	m_mainLayout = new QVBoxLayout(this);
+	m_topLayout = new QHBoxLayout(this);
+	m_midLayout = new QHBoxLayout(this);
+	m_bottomMainLayout = new QVBoxLayout(this);
+	m_midBarLayout = new QHBoxLayout(this);
+	m_midBar2Layout = new QHBoxLayout(this);
+	m_midTopLayout = new QHBoxLayout(this);
+	m_midBotLayout = new QHBoxLayout(this);
 
+	m_mainLayout->addLayout(m_topLayout);
+	m_mainLayout->addLayout(m_midLayout);
+	m_mainLayout->addLayout(m_bottomMainLayout);
+	m_mainLayout->setSpacing(5);
+	m_mainLayout->setContentsMargins(5, 5, 5, 5);
+
+	m_topLayout->addWidget(m_laserEditor[0]);
+	m_topLayout->addWidget(m_laserEditor[1]);
+	m_topLayout->addWidget(m_laserEditor[2]);
+	m_midLayout->addWidget(m_laserEditor[5]);
+	m_midLayout->addWidget(m_laserEditor[4]);
+	m_midLayout->addWidget(m_laserEditor[3]);
+
+	m_bottomMainLayout->addLayout(m_midBarLayout);
+	m_bottomMainLayout->addLayout(m_midBar2Layout);
+	m_bottomMainLayout->addLayout(m_midTopLayout);
+	m_bottomMainLayout->addLayout(m_midBotLayout);
+	m_bottomMainLayout->setContentsMargins(5, 10, 10, 55);
+
+	m_laserName[0] = new QLabel(QStringLiteral("#1检测位："), this);
+	m_laserName[1] = new QLabel(QStringLiteral(" #2检测位："), this);
+	m_laserName[2] = new QLabel(QStringLiteral(" #3检测位："), this);
+	m_laserName[3] = new QLabel(QStringLiteral(" #4检测位："), this);
+	m_laserName[4] = new QLabel(QStringLiteral(" #5检测位："), this);
+	m_laserName[5] = new QLabel(QStringLiteral("#6检测位："), this);
+
+	m_laserTrig[0] = new QCheckBox(QStringLiteral("Laser1实时显示"), this);
+	m_laserTrig[1] = new QCheckBox(QStringLiteral("Laser2实时显示"), this);
+	m_laserTrig[2] = new QCheckBox(QStringLiteral("Laser3实时显示"), this);
+	m_laserTrig[3] = new QCheckBox(QStringLiteral("Laser4实时显示"), this);
+	m_laserTrig[4] = new QCheckBox(QStringLiteral("Laser5实时显示"), this);
+	m_laserTrig[5] = new QCheckBox(QStringLiteral("Laser6实时显示"), this);
+
+	m_laseWave[0][0] = new QLineEdit(this);//#1
+	m_laseWave[0][1] = new QLineEdit(this);
+	m_laseWave[0][2] = new QLineEdit(this);
+	m_laseWave[0][3] = new QLineEdit(this);
+
+	m_laseWave[1][0] = new QLineEdit(this);//#2
+	m_laseWave[1][1] = new QLineEdit(this);
+	m_laseWave[1][2] = new QLineEdit(this);
+	m_laseWave[1][3] = new QLineEdit(this);
+
+	m_laseWave[2][0] = new QLineEdit(this);//#3
+	m_laseWave[2][1] = new QLineEdit(this);
+	m_laseWave[2][2] = new QLineEdit(this);
+	m_laseWave[2][3] = new QLineEdit(this);
+
+	m_laseWave[3][0] = new QLineEdit(this);//#4
+	m_laseWave[3][1] = new QLineEdit(this);
+	m_laseWave[3][2] = new QLineEdit(this);
+	m_laseWave[3][3] = new QLineEdit(this);
+
+	m_laseWave[4][0] = new QLineEdit(this);//#5
+	m_laseWave[4][1] = new QLineEdit(this);
+	m_laseWave[4][2] = new QLineEdit(this);
+	m_laseWave[4][3] = new QLineEdit(this);
+
+	m_laseWave[5][0] = new QLineEdit(this);//#6
+	m_laseWave[5][1] = new QLineEdit(this);
+	m_laseWave[5][2] = new QLineEdit(this);
+	m_laseWave[5][3] = new QLineEdit(this);
+
+	for (int i = 0; i < 6; i++)
+	{
+		m_laserTrig[i]->setObjectName("checkBox");
+		for (int j = 0; j < 4; j++)
+			m_laseWave[i][j]->setObjectName("lineEdit");
+	}
+
+	m_midBarLayout->addWidget(m_laserTrig[0]);
+	m_midBarLayout->addWidget(m_laserTrig[1]);
+	m_midBarLayout->addWidget(m_laserTrig[2]);
+	m_midBar2Layout->addWidget(m_laserTrig[5]);
+	m_midBar2Layout->addWidget(m_laserTrig[4]);
+	m_midBar2Layout->addWidget(m_laserTrig[3]);
+
+	//laser #1 lineEdit
+	m_midTopLayout->addWidget(m_laserName[0]);
+	m_midTopLayout->addWidget(m_laseWave[0][0]);
+	m_midTopLayout->addWidget(m_laseWave[0][1]);
+	m_midTopLayout->addWidget(new QLabel(QStringLiteral("^"), this));
+	m_midTopLayout->addWidget(m_laseWave[0][2]);
+	m_midTopLayout->addWidget(m_laseWave[0][3]);
+
+	//laser #2 lineEdit
+	m_midTopLayout->addWidget(m_laserName[1]);
+	m_midTopLayout->addWidget(m_laseWave[1][0]);
+	m_midTopLayout->addWidget(m_laseWave[1][1]);
+	m_midTopLayout->addWidget(new QLabel(QStringLiteral("^"), this));
+	m_midTopLayout->addWidget(m_laseWave[1][2]);
+	m_midTopLayout->addWidget(m_laseWave[1][3]);
+
+	//laser #3 lineEdit
+	m_midTopLayout->addWidget(m_laserName[2]);
+	m_midTopLayout->addWidget(m_laseWave[2][0]);
+	m_midTopLayout->addWidget(m_laseWave[2][1]);
+	m_midTopLayout->addWidget(new QLabel(QStringLiteral("^"), this));
+	m_midTopLayout->addWidget(m_laseWave[2][2]);
+	m_midTopLayout->addWidget(m_laseWave[2][3]);
+
+	// //laser #6 lineEdit
+	m_midBotLayout->addWidget(m_laserName[5]);
+	m_midBotLayout->addWidget(m_laseWave[5][0]);
+	m_midBotLayout->addWidget(m_laseWave[5][1]);
+	m_midBotLayout->addWidget(new QLabel(QStringLiteral("^"), this));
+	m_midBotLayout->addWidget(m_laseWave[5][2]);
+	m_midBotLayout->addWidget(m_laseWave[5][3]);
+
+	//laser #5 lineEdit
+	m_midBotLayout->addWidget(m_laserName[4]);
+	m_midBotLayout->addWidget(m_laseWave[4][0]);
+	m_midBotLayout->addWidget(m_laseWave[4][1]);
+	m_midBotLayout->addWidget(new QLabel(QStringLiteral("^"), this));
+	m_midBotLayout->addWidget(m_laseWave[4][2]);
+	m_midBotLayout->addWidget(m_laseWave[4][3]);
+
+	//laser #4 lineEdit
+	m_midBotLayout->addWidget(m_laserName[3]);
+	m_midBotLayout->addWidget(m_laseWave[3][0]);
+	m_midBotLayout->addWidget(m_laseWave[3][1]);
+	m_midBotLayout->addWidget(new QLabel(QStringLiteral("^"), this));
+	m_midBotLayout->addWidget(m_laseWave[3][2]);
+	m_midBotLayout->addWidget(m_laseWave[3][3]);
+
+	QWidget* laserWidget = new QWidget(this);
+	laserWidget->setObjectName("laserWidget");
+	laserWidget->setLayout(m_mainLayout);
+
+	ui.tabWidget->insertTab(2, laserWidget, QStringLiteral("激光参数"));  //激光参数tab页
+
+	deal_raw_data();
+	
 //	ui.pushButtonStart->setEnabled(false);
-	ui.pushButtonStop->setEnabled(false);
-	ui.pushButtonPause->setEnabled(false);
-
 	ui.pushButtonZero->setEnabled(true);	
+}
+
+void HSMeasure::onTabWidgetChanged(int tabIndex)
+{
+	int b = tabIndex;
+
+	if (1 == tabIndex)
+	{
+		ui.lineEditJogSpeedCcd->setText(QString("%1").arg(speedFromIni.ccdJogSpeed));
+		
+
+	}
 }
 
 void HSMeasure::initDmcCard()
@@ -265,14 +434,19 @@ void HSMeasure::initDmcCard()
 	
 	for (int Axis = 0; Axis < AXIS_NUM; Axis++)
 	{
-		mpDMC5000Lib->mpDmcAxis[0][Axis]->setMovePara(5000,10000);
+		mpDMC5000Lib->mpDmcAxis[0][Axis]->setMovePara();
 	}
 	
+	//
+	for (int Axis = 0; Axis < AXIS_NUM; Axis++)
+	{
+		mpMOTIONLib->mpDmcAxis[mCardNo][Axis]->mpStopFlag = &mbStop;
+	}
 }
 
 void HSMeasure::initValue()
 {
-	
+	mbStop = false;
 
 	mCurState = NULL_MEASURE;;
 
@@ -291,40 +465,6 @@ void HSMeasure::initValue()
 	}
 }
 
-void HSMeasure::hs_start()  //启动button clicked
-{
-	//
-	WORK_THREAD* pWorkThread = new WORK_THREAD(this);
-	QTimer::singleShot(0, pWorkThread, SLOT(run()));
-
-	this->pWorkThread = pWorkThread;
-
-	for (int Axis = 0; Axis < AXIS_NUM; Axis++)
-	{
-		mpMOTIONLib->mpDmcAxis[mCardNo][Axis]->mpMutex = &pWorkThread->mMutex;
-	}
-	
-
-	mpBCDH_gap = new BCDH_gap(this);
-	mpBCDH_step = new BCDH_step(this);
-
-
-	ui.pushButtonStart->setEnabled(false);
-	ui.pushButtonZero->setEnabled(false);
-	
-	ui.pushButtonPause->setEnabled(true);
-	ui.pushButtonStop->setEnabled(true);
-
-	/*
-	_COMMUNICATECLASS::COM_PORT_ONE testCom(1, QSerialPort::BaudRate::Baud9600);
-
-	auto bb = testCom.open();
-	auto aa = testCom.send("1234");
-
-	auto re = testCom.getRec();
-	*/
-}
-
 void HSMeasure::hs_pause()  //暂停button clicked
 {
 	static bool flag = false;
@@ -334,14 +474,14 @@ void HSMeasure::hs_pause()  //暂停button clicked
 	if (flag)
 	{
 		mbPause = true;
-		pWorkThread->mMutex.lock();
+
 		ui.pushButtonPause->setStyleSheet("QPushButton{background:yellow}");
 		ui.pushButtonPause->setText(QStringLiteral("继续"));
 	}
 	else
 	{
 		mbPause = false;
-		pWorkThread->mMutex.unlock();
+		
 		ui.pushButtonPause->setStyleSheet("QPushButton{background:}");
 		ui.pushButtonPause->setText(QStringLiteral("暂停"));	
 	}
@@ -350,88 +490,24 @@ void HSMeasure::hs_pause()  //暂停button clicked
 
 void HSMeasure::hs_stop()
 {
-	mbStop = true;
-	ui.pushButtonStop->setEnabled(false);
-	ui.pushButtonStop->setStyleSheet("QPushButton{background:red}");
 	pWorkThread->mMutex.lock();
-	mpDMC5000Lib->emgStop();
-}
+	mbStop = true;
+	pWorkThread->mMutex.unlock();
 
-void HSMeasure::hs_zero()  //回原button clicked
-{
-	ui.pushButtonStop->setEnabled(true);
+	Sleep(1000);
 
-	if (false == go_home())
-	{
-
-		ui.pushButtonZero->setStyleSheet("QPushButton{background:red}");
-		return;
-	}
-
-	ui.pushButtonZero->setStyleSheet("QPushButton{background:green}");
 	ui.pushButtonStart->setEnabled(true);
-}
+	ui.pushButtonZero->setEnabled(true);
 
-
-void WORK_THREAD::run()  //运动流程
-{
-
-	while (true)
-	{
-
-		if (true == this->mpHSMeasure->mbStop)
-		{
-			break;
-		}
-
-		WORD portno = 0;
-
-		DWORD ioStates = dmc_read_inport(this->mpHSMeasure->mCardNo, portno);
-
-		QSettings settings(mPath +"/cfg/config.ini", QSettings::IniFormat);
-		int bStart = settings.value("DEBUG/BSTART").toInt();
-
-		if ((1 == ioStates && 1 == ioStates) || 1 == bStart)
-		{
-			settings.setValue("DEBUG/BSTART","0");
-			
-			this->mpHSMeasure->mCurState = GAP_MEASURE;			
-		}
-		
-		switch (this->mpHSMeasure->mCurState)
-		{
-		case GAP_MEASURE:
-			if (false == mpBCDH_gap->getGapValue())
-			{
-				return;
-			}
-			break;
-		case STEP_MEASURE:
-			mpBCDH_step->getStepValue();
-			this->mpHSMeasure->saveValueToLog(this->mpHSMeasure->fixValue);
-			this->mpHSMeasure->showValueToUi(this->mpHSMeasure->fixValue);
-			break;
-		default:
-			break;
-
-		}
-		this->mpHSMeasure->mCurState++;
-
-		if (this->mpHSMeasure->mCurState > FINISH)
-		{
-			this->mpHSMeasure->mCurState = NULL_MEASURE;
-		}
-
-		qDebug() << "runing...";
-		QApplication::processEvents();
-		Sleep(1000);
-	}
-
+	ui.pushButtonStart->setStyleSheet("QPushButton{background:}");
+	ui.pushButtonStop->setStyleSheet("QPushButton{background:red}");
 }
 
 bool HSMeasure::go_home()  //回原流程
 {
-	
+	ui.pushButtonZero->setStyleSheet("QPushButton{background:}");
+	ui.pushButtonStop->setStyleSheet("QPushButton{background:}");
+
 	for (int Axis = 0; Axis < AXIS_NUM; Axis++)
 	{
 		mpDMC5000Lib->stop(mCardNo, Axis, _MOTIONCLASS::DMC5000Lib::STOP_MODE_EMG);
@@ -453,7 +529,7 @@ bool HSMeasure::go_home()  //回原流程
 
 	while (true)
 	{
-		ui.pushButtonZero ->setStyleSheet("QPushButton{background:yellow}");
+		ui.pushButtonZero->setStyleSheet("QPushButton{background:yellow}");
 
 		if (mbPause)
 		{
@@ -472,11 +548,12 @@ bool HSMeasure::go_home()  //回原流程
 		case 0:
 			bReturn = mpDMC5000Lib->mpDmcAxis[mCardNo][ccdAxisNo]->home(); if (!bReturn) { return false; }
 			bReturn = mpDMC5000Lib->mpDmcAxis[mCardNo][laserAxisNo]->home(); if (!bReturn) { return false; }
-			
+
 			bReturn = mpDMC5000Lib->mpDmcAxis[mCardNo][laserAxisNo]->checkHome(tSystemTime, DEFAUL_HOME_TIME_OUT); if (!bReturn) { return false; }
 
 			break;
 		case 1:
+			mpDMC5000Lib->mpDmcAxis[mCardNo][laserAxisNo]->setMovePara(speedFromIni.laserAutoSpeed, ABSOLUTE_MOTION);
 			bReturn = mpDMC5000Lib->mpDmcAxis[mCardNo][laserAxisNo]->moveAndCheckdone(LaserSafePosition, DEFAUL_HOME_TIME_OUT); if (!bReturn) { return false; }
 
 			break;
@@ -489,6 +566,7 @@ bool HSMeasure::go_home()  //回原流程
 			break;
 
 		case 4:
+			mpDMC5000Lib->mpDmcAxis[mCardNo][platformAxisNo]->setMovePara(speedFromIni.laserAutoSpeed, ABSOLUTE_MOTION);
 			bReturn = mpDMC5000Lib->mpDmcAxis[mCardNo][platformAxisNo]->moveAndCheckdone(LaserSafePosition, DEFAUL_HOME_TIME_OUT); if (!bReturn) { return false; }
 
 		case 5:
@@ -497,18 +575,20 @@ bool HSMeasure::go_home()  //回原流程
 			/*
 			for (int InPut = 0; InPut < 10; InPut++)
 			{
-				if (dmc_read_inbit(mCardNo, InPut))
-				{
-					QMessageBox::warning(this, "", QString("Input %1 failed").arg(InPut));
-				}
+			if (dmc_read_inbit(mCardNo, InPut))
+			{
+			QMessageBox::warning(this, "", QString("Input %1 failed").arg(InPut));
+			}
 			}
 			*/
 			break;
 		default:
 			break;
 		}
-		
+
 		homeStep++;
+
+		qDebug() << "homeStep:" << homeStep;
 
 		if (homeStep > 6)
 		{
@@ -519,12 +599,138 @@ bool HSMeasure::go_home()  //回原流程
 	}
 }
 
+void HSMeasure::hs_zero()  //回原button clicked
+{
+	mbStop = false;
+
+
+	mpDMC5000Lib->mpDmcAxis[mCardNo][ccdAxisNo]->setHomePara(speedFromIni.ccdHomeSpeed);
+	mpDMC5000Lib->mpDmcAxis[mCardNo][laserAxisNo]->setHomePara(speedFromIni.laserHomeSpeed);
+	mpDMC5000Lib->mpDmcAxis[mCardNo][platformAxisNo]->setHomePara(speedFromIni.platHomeSpeed);
+
+	if (false == go_home())
+	{
+		ui.pushButtonZero->setStyleSheet("QPushButton{background:red}");
+		return;
+	}
+
+	ui.pushButtonZero->setStyleSheet("QPushButton{background:green}");
+	ui.pushButtonStart->setEnabled(true);
+}
+
+void MY_THREAD::run()  //运动流程
+{
+
+	mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->ccdAxisNo]->setMovePara(mpHSMeasure->speedFromIni.ccdAutoSpeed, ABSOLUTE_MOTION);
+	mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->setMovePara(mpHSMeasure->speedFromIni.laserAutoSpeed, ABSOLUTE_MOTION);
+	mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->platformAxisNo]->setMovePara(mpHSMeasure->speedFromIni.platAutoSpeed, ABSOLUTE_MOTION);
+
+	while (true)
+	{
+		mMutex.lock();
+		if (true == this->mpHSMeasure->mbStop)
+		{
+			mMutex.unlock();
+			break;
+		}
+
+		if (true == this->mpHSMeasure->mbPause)
+		{
+			mMutex.unlock();
+			continue;
+		}
+		mMutex.unlock();
+
+		WORD portno = 0;
+
+		DWORD ioStates = dmc_read_inport(mpHSMeasure->mCardNo, portno);
+
+		QSettings settings(mPath +"/cfg/config.ini", QSettings::IniFormat);
+		int bStart = settings.value("DEBUG/BSTART").toInt();
+
+		if ((1 == ioStates && 1 == ioStates) || 1 == bStart)
+		{
+			settings.setValue("DEBUG/BSTART","0");
+			
+			mpHSMeasure->mCurState = GAP_MEASURE;			
+		}
+		
+		switch (mpHSMeasure->mCurState)
+		{
+		case GAP_MEASURE:
+			if (false == mpBCDH_gap->getGapValue())
+			{
+				return;
+			}
+
+			this->mpHSMeasure->mCurState++;
+
+			break;
+		case STEP_MEASURE:
+
+			mpBCDH_step->getStepValue();
+			mpHSMeasure->saveValueToLog(mpHSMeasure->fixValue);
+			mpHSMeasure->showValueToUi(mpHSMeasure->fixValue);
+			this->mpHSMeasure->mCurState++;
+			break;
+
+		case UNLOAD:
+			mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->moveAndCheckdone(mpHSMeasure->LaserSafePosition, DEFAUL_HOME_TIME_OUT);
+			this->mpHSMeasure->mCurState++;
+			break;
+
+		default:
+			break;
+
+		}
+		
+
+		if (this->mpHSMeasure->mCurState > FINISH)
+		{
+			this->mpHSMeasure->mCurState = NULL_MEASURE;
+
+			break;
+		}
+
+		qDebug() << "runing..." << QThread::currentThreadId();
+		QApplication::processEvents();
+		QThread::msleep(1000);
+	}
+
+}
+
+void HSMeasure::hs_start()  //启动button clicked
+{
+	initValue();
+	//
+	std::shared_ptr <MY_THREAD> pWorkThread = std::make_shared<MY_THREAD>(this);
+	std::shared_ptr <MY_THREAD> pIoThread = std::make_shared<MY_THREAD>(this);
+
+	connect(&pWorkThread->mThread, &QThread::started, &*pWorkThread, &MY_THREAD::run);
+	connect(&pIoThread->mThread, &QThread::started, &*pIoThread, &MY_THREAD::fun);
+
+	this->pWorkThread = pWorkThread;
+	this->pIoThread = pIoThread;
+
+	ui.pushButtonStart->setStyleSheet("QPushButton{background:lightgreen}");
+	ui.pushButtonStop->setStyleSheet("QPushButton{background:}");
+
+	ui.pushButtonStart->setEnabled(false);
+	ui.pushButtonZero->setEnabled(false);
+
+}
+
 void HSMeasure::show_msg(const QString &msg)
 {
 	QDateTime current_date_time = QDateTime::currentDateTime();
 	QString current_time = current_date_time.toString("yyyy-MM-dd HH:mm:ss:zzz");
 	ui.plainTextEditShowMsg->appendPlainText("["+ current_time +"] " + msg);
 	qDebug() << msg;
+}
+
+void HSMeasure::show_dialog(const QString &msg)
+{
+	QMessageBox::information(this, "", msg);
 }
 
 void HSMeasure::load_ini()
@@ -544,6 +750,26 @@ void HSMeasure::load_ini()
 
 	LaserSafePosition = settings.value("POSITION/LaserSafePosition").toInt();
 	FeedingPosition = settings.value("POSITION/FeedingPosition").toInt();
+	
+	//
+	speedFromIni.ccdHomeSpeed = settings.value("SPEED/ccdHomeSpeed").toDouble();
+	speedFromIni.laserHomeSpeed = settings.value("SPEED/laserHomeSpeed").toDouble();
+	speedFromIni.platHomeSpeed = settings.value("SPEED/platHomeSpeed").toDouble();
+	speedFromIni.rotateHomeSpeed = settings.value("SPEED/rotateHomeSpeed").toDouble();
+	speedFromIni.unloadHomeSpeed = settings.value("SPEED/unloadHomeSpeed").toDouble();
+	
+	speedFromIni.ccdJogSpeed = settings.value("SPEED/ccdJogSpeed").toDouble();
+	speedFromIni.laserJogSpeed = settings.value("SPEED/laserJogSpeed").toDouble();
+	speedFromIni.platJogSpeed = settings.value("SPEED/platJogSpeed").toDouble();
+	speedFromIni.rotateJogSpeed = settings.value("SPEED/rotateJogSpeed").toDouble();
+	speedFromIni.unloadJogSpeed = settings.value("SPEED/unloadJogSpeed").toDouble();
+	speedFromIni.jogPulse = settings.value("SPEED/jogPulse").toInt();
+
+	speedFromIni.ccdAutoSpeed = settings.value("SPEED/ccdAutoSpeed").toDouble();
+	speedFromIni.laserAutoSpeed = settings.value("SPEED/laserAutoSpeed").toDouble();
+	speedFromIni.platAutoSpeed = settings.value("SPEED/platAutoSpeed").toDouble();
+	speedFromIni.rotateAutoSpeed = settings.value("SPEED/rotateAutoSpeed").toDouble();
+	speedFromIni.unloadAutoSpeed = settings.value("SPEED/unloadAutoSpeed").toDouble();
 }
 
 void HSMeasure::save_ini()
@@ -624,3 +850,36 @@ void HSMeasure::closeEvent(QCloseEvent *event)
 
 	dmc_board_close();
 }
+
+void HSMeasure::deal_raw_data()
+{
+	int inum = 0;
+	QVector<double> x(800), y(800);
+	QString dbFileName = "C:\\data1.txt";
+	QFile sptabFile(dbFileName);
+	if (sptabFile.exists())
+	{
+		int j = 0;
+	}
+	else
+	{
+		int k = 0;
+	}
+
+	if (!sptabFile.open(QIODevice::ReadOnly | QIODevice::Text))
+	{
+		qDebug() << "Can't open the file!" << endl;
+	}
+	while (!sptabFile.atEnd())
+	{
+
+		//QCoreApplication::processEvents();
+		QString line = sptabFile.readLine();
+		y[inum] = line.toFloat();
+		x[inum] = inum;
+		inum++;
+
+	}  //end while		
+	m_laserEditor[0]->show_line(x, y);
+}
+

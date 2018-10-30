@@ -5,9 +5,9 @@
 #include <array>
 #include "hsmeasure.h"
 
-class BCDH_gap //: public QObject
+class BCDH_gap : public QObject
 {
-//	Q_OBJECT
+	Q_OBJECT
 
 public:
 	BCDH_gap(HSMeasure* pHSMeasure);
@@ -26,6 +26,10 @@ public:
 	bool getGapValue(SLOTPOS_NO, GAP_NO, float&);
 	bool getGapValue(const GAP_NO gapNo, float gapValue[]);
 	bool getGapValue();	
+
+signals:
+	void showMsgSignal(const QString&);
+	void showDialogSignal(const QString&);
 
 private:
 	HSMeasure* mpHSMeasure;

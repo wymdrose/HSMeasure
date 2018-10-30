@@ -3,7 +3,7 @@
 
 #include <QtWidgets/QMainWindow>
 #include "ui_hsmeasure.h"
-
+#include "laseredit.h"
 #include <QCloseEvent>
 #include <qfiledialog.h>
 #include <qinputdialog.h>
@@ -14,47 +14,66 @@
 #include <qtextstream.h>
 #include <qstandarditemmodel.h>
 #include <qdebug.h>
+#include <QGridLayout>
 #include <QMetaType>
+#include <memory>
 #include "define.h"
 #include "Lib/motionLib.hpp"
 #include "Lib/communicateLib.hpp"
 
-//#define
-
 class HSMeasure;
 
-class WORK_THREAD : public QObject
+
+class MY_THREAD : public QObject
 {
 	Q_OBJECT
 public:
-	WORK_THREAD(HSMeasure* pHSMeasure) : mpHSMeasure(pHSMeasure)
+	MY_THREAD(HSMeasure* pHSMeasure) : mpHSMeasure(pHSMeasure)
+	{
+		this->moveToThread(&mThread);
+		mThread.start();
+
+		connect(this, &MY_THREAD::finished, &mThread, &QThread::quit);
+		connect(this, &MY_THREAD::finished, this, &MY_THREAD::deleteLater);
+		connect(&mThread, &QThread::finished, &mThread, &QThread::deleteLater);
+		
+
+	}
+	~MY_THREAD()
+	{
+		qDebug() << "~MY_THREAD()";
+	}
+
+	void start()
 	{
 		mThread.start();
-		this->moveToThread(&mThread);
 	}
-	~WORK_THREAD(){}
 
-	protected slots:
+signals:
+	void finished();
+public slots:
 	void run();
-	//	void fun2();
-
+	void fun();
 public:
+	
 	QMutex		mMutex;
-private:
 	QThread		mThread;
+private:
+	
 	HSMeasure*	mpHSMeasure;
 };
 
 class HSMeasure : public QMainWindow
 {
 	Q_OBJECT
-
+	
 public:
 	HSMeasure(QWidget *parent = 0);
 	~HSMeasure();
 
 	void initValue();
 	void initDmcCard();
+	void login();
 	void hsmeasure_para();
 	void showValueToUi(const FIX_VALUE&);
 	void showLogToUi();
@@ -67,14 +86,22 @@ public:
 	_MOTIONCLASS::MOTION_CARD_TYPE mCardType = _MOTIONCLASS::MOTION_CARD_TYPE::DMC5000;
 
 	//
-	_COMMUNICATECLASS::TCP_CLIENT* mpTcpClientCcd[2];
-	_COMMUNICATECLASS::COM_PORT_ONE* mpSerialportCcd[2];
-	//
-	_COMMUNICATECLASS::TCP_CLIENT* mpTcpClientLaser[3];
+	std::shared_ptr<_COMMUNICATECLASS::TCP_CLIENT> mpTcpClientCcd[2];
+	std::shared_ptr<_COMMUNICATECLASS::COM_PORT_ONE> mpSerialportCcd[2];
+	std::shared_ptr<_COMMUNICATECLASS::TCP_CLIENT> mpTcpClientLaser[3];
 	
+	//专用IO
+	QCheckBox* pBitInS[AXIS_NUM][IO_A_NUM];
+	QCheckBox* pBitOutS[AXIS_NUM][IO_A_NUM];
 
-	//
-	
+	//通用IO
+	QCheckBox* pBitInM[IO_BIT_NUM];
+	QCheckBox* pBitOutM[IO_BIT_NUM];
+
+	QCheckBox* pBitInG[IO_EX_NUM][IO_BIT_NUM];
+	QCheckBox* pBitOutG[IO_EX_NUM][IO_BIT_NUM];
+
+	//	
 	bool flagSlot[SlotposNo4 + 1];
 	FIX_VALUE fixValue;
 
@@ -86,24 +113,44 @@ public:
 	int platformAxisNo = 2;
 	int rotateAxisNo = 3;
 	int unloadAxisNo = 4;
+	SPEED_FROM_INI speedFromIni;
 
 	long LaserSafePosition;
 	long FeedingPosition;
 
 	bool bNext;
-	bool mbPause;
-	bool mbStop;
+	bool mbPause = false;
+	bool mbStop = false;
 	QStringList mStatusList;
 	STATE_FLOW  mCurState = NULL_MEASURE;
-	WORK_THREAD* pWorkThread;
+	std::shared_ptr <MY_THREAD> pWorkThread;
+	std::shared_ptr <MY_THREAD> pIoThread;
+
+	//
+	laserEdit* m_laserEditor[6];
+	QLineEdit* m_laseWave[6][4];  //激光的两段测量位置，共4个点确定，start1，end1；start2，end2。共6个激光器
+	QLabel* m_laserName[6];
+	QCheckBox* m_laserTrig[6];
+
+	//激光tab页的layout
+	QVBoxLayout* m_mainLayout;
+	QHBoxLayout* m_midBarLayout;
+	QHBoxLayout* m_midBar2Layout;
+	QHBoxLayout* m_topLayout;
+	QHBoxLayout* m_midLayout;
+	QVBoxLayout* m_bottomMainLayout;
+	QHBoxLayout* m_midTopLayout;
+	QHBoxLayout* m_midBotLayout;
+	void deal_raw_data();
 
 private:
 	Ui::HSMeasureClass ui;
 	void init();
+	void initUiIo();
 	void load_ini();
 
 	QMutex m_mutex;
-	
+	QMutex ioMutex;
 	
 	bool go_home();
 	
@@ -111,16 +158,12 @@ private:
 	void write_log_to_txt(const QString &file_name);
 	void closeEvent(QCloseEvent *event);
 
-
-
 	QStandardItemModel *model_result;
-
-
-
-
 
 	private slots:
 	void show_msg(const QString &msg);
+	void show_dialog(const QString &msg);
+
 	void save_ini();
 	void save_log();
 
@@ -130,7 +173,8 @@ private:
 	void hs_stop();
 	//
 	void onIoTimer();
-
+	void onTabWidgetChanged(int);
+	void onCheckBoxIo();
 signals:
 	
 };

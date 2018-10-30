@@ -4,9 +4,13 @@
 #define AXIS_NUM  5
 #define USA_UP_VAL  0.080
 #define DEFAUL_HOME_TIME_OUT  100000
-#define DEFAUL_MOVE_TIME_OUT  10000
+#define DEFAUL_MOVE_TIME_OUT  100000
 #define DMC_SERV_ENABLE  0
 #define DMC_SERV_DISABLE  1
+
+#define IO_A_NUM 4		//一个轴专用IO数量
+#define	IO_EX_NUM 3
+#define IO_BIT_NUM 16
 
 enum SLOTPOS_NO
 {
@@ -53,4 +57,27 @@ enum
 };
 
 typedef unsigned int STATE_FLOW;
+
+struct SPEED_FROM_INI
+{
+	double  ccdHomeSpeed;
+	double	laserHomeSpeed;
+	double	platHomeSpeed;
+	double	rotateHomeSpeed;
+	double	unloadHomeSpeed;
+
+	double	ccdJogSpeed;
+	double	laserJogSpeed;
+	double	platJogSpeed;
+	double	rotateJogSpeed;
+	double	unloadJogSpeed;
+	int		jogPulse;
+
+	double	ccdAutoSpeed;
+	double	laserAutoSpeed;
+	double	platAutoSpeed;
+	double	rotateAutoSpeed;
+	double	unloadAutoSpeed;
+};
+
 

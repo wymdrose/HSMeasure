@@ -112,19 +112,20 @@ private:
 
 class DMC5000Lib : public MOTIONLib
 {
-	
+	#define ABSOLUTE_MOTION 1
+	#define RELATIVE_MOTION 0
+
 	class DmcAxis
 	{
 	public:
 
 		DmcAxis(int cardNo, int axisNo) : mCardNo(cardNo), mAxisNo(axisNo)
-		{
-
-		}
+		{}
 		//
 		void setHomePara(
+			double Max_Vel = maxVel,
 			WORD home_dir = 1,
-			double Min_Vel = startVel, double Max_Vel = maxVel,
+			double Min_Vel = startVel, 
 			double Tacc = accT, double Tdec = decT,
 
 			double vel_mode = 0,
@@ -132,8 +133,9 @@ class DMC5000Lib : public MOTIONLib
 
 			double stop_vel = 500, WORD EZ_count = 0)
 		{
+			mHomePara.Max_Vel = Max_Vel;
 			mHomePara.home_dir = home_dir;
-			mHomePara.Min_Vel = Min_Vel; mHomePara.Max_Vel = Max_Vel;
+			mHomePara.Min_Vel = Min_Vel;
 			mHomePara.Tacc = Tacc;		 mHomePara.Tdec = Tdec;
 
 			dmc_set_pulse_outmode(mCardNo, mAxisNo, 0);  //设置脉冲输出模式
@@ -143,10 +145,14 @@ class DMC5000Lib : public MOTIONLib
 
 		bool home()
 		{
-			mpMutex->lock();
-			dmc_home_move(mCardNo, mAxisNo);//回零动作
-			mpMutex->unlock();
-
+			if (true == *mpStopFlag)
+			{
+				dmc_stop(mCardNo, mAxisNo, 1);
+				return false;
+			}
+						
+			dmc_home_move(mCardNo, mAxisNo);
+		
 			return true;
 		}
 
@@ -154,15 +160,22 @@ class DMC5000Lib : public MOTIONLib
 		{
 			while (0 == dmc_check_done(mCardNo, mAxisNo))
 			{
+				if (true == *mpStopFlag)
+				{ 
+					dmc_stop(mCardNo, mAxisNo, 1);
+					return false; 
+				}
+
 				if ((GetTickCount() - tSystemTime) > outTime)
 				{
 					dmc_stop(mCardNo, mAxisNo, STOP_MODE_EMG);
-
+					qDebug() << "outTime";
 					return false;
 				}
 
 				if ((dmc_axis_io_status(mCardNo, mAxisNo) >> 2) & 0x01)
 				{
+					qDebug() << "dmc_axis_io_status";
 					return false;
 				}
 
@@ -175,21 +188,20 @@ class DMC5000Lib : public MOTIONLib
 			return true;
 		}
 
-		bool stop(WORD mode)
+		void stop(WORD mode)
 		{
 			dmc_stop(mCardNo, mAxisNo, mode);
-
-			return true;
 		}
 
-		bool setMovePara(
-			WORD posiMode = 1,		//Absolute motion
-			double Min_Vel = startVel, double Max_Vel = maxVel, double Tacc = accT, double Tdec = decT, double stop_vel = stopVel,
+		bool setMovePara(double Max_Vel = maxVel,
+			WORD posiMode = ABSOLUTE_MOTION,		//Absolute motion
+			double Min_Vel = startVel,  double Tacc = accT, double Tdec = decT, double stop_vel = stopVel,
 			WORD s_mode = modeS, double s_para = paraS,
 			bool bLogic = true,		//positive
 			MOVE_TYPE moveType = SingleAxisPositionMove)
 		{
-			mMovePara.Min_Vel = Min_Vel; mMovePara.Max_Vel = Max_Vel;
+			mMovePara.Max_Vel = Max_Vel;
+			mMovePara.Min_Vel = Min_Vel; 
 			mMovePara.Tacc = Tacc;		mMovePara.Tdec = Tdec; mMovePara.stop_vel = stop_vel;
 			mMovePara.s_mode = s_mode;	mMovePara.s_para = s_para;
 			mMovePara.bLogic = bLogic;
@@ -232,10 +244,15 @@ class DMC5000Lib : public MOTIONLib
 		{
 			while (true)
 			{
+				if (true == *mpStopFlag)
+				{
+					dmc_stop(mCardNo, mAxisNo, 1);
+					return 3; 
+				}
+
 				if ((GetTickCount() - tSystemTime) > outTime)
 				{
 					dmc_stop(mCardNo, mAxisNo, 1);
-
 					return 2;
 				}
 
@@ -254,14 +271,24 @@ class DMC5000Lib : public MOTIONLib
 
 		bool moveAndCheckdone(long nPulse, const DWORD outTime)
 		{
-			mpMutex->lock();
+			if (true == *mpStopFlag)
+			{
+				dmc_stop(mCardNo, mAxisNo, 1);
+				return false;
+			}
+
 			move(nPulse);
-			mpMutex->unlock();
 
 			DWORD tSystemTime = GetTickCount();
 
 			while (0 == dmc_check_done(mCardNo, mAxisNo))
 			{
+				if (true == *mpStopFlag)
+				{
+					dmc_stop(mCardNo, mAxisNo, 1);
+					return false;
+				}
+
 				if ((GetTickCount() - tSystemTime) > outTime)
 				{
 					dmc_stop(mCardNo, mAxisNo, STOP_MODE_EMG);
@@ -289,6 +316,7 @@ class DMC5000Lib : public MOTIONLib
 			dmc_write_sevon_pin(mCardNo, mAxisNo, on_off);
 		}
 
+		bool* mpStopFlag;
 		QMutex*	 mpMutex;
 		WORD mCardNo;	
 		WORD mAxisNo;
