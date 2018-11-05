@@ -5,8 +5,8 @@
 
 QString mPath;
 BCDH_gap* mpBCDH_gap;
-BCDH_step* mpBCDH_step
-;
+BCDH_step* mpBCDH_step;
+
 HSMeasure::HSMeasure(QWidget *parent)
 	: QMainWindow(parent)
 {
@@ -152,7 +152,9 @@ void HSMeasure::init()
 	connect(ui.pushButtonPause, SIGNAL(clicked()), this, SLOT(hs_pause()));
 	connect(ui.pushButtonZero, SIGNAL(clicked()), this, SLOT(hs_zero()));
 	connect(ui.pushButtonStop, SIGNAL(clicked()), this, SLOT(hs_stop()));
-	
+	connect(ui.pushButtonRestAlm, SIGNAL(clicked()), this, SLOT(hs_RestAlm()));
+	connect(ui.pushButtonMute, SIGNAL(clicked()), this, SLOT(hs_Mute()));
+
 	show_msg("the program is running!");
 
 	//
@@ -442,17 +444,21 @@ void HSMeasure::initDmcCard()
 	{
 		mpMOTIONLib->mpDmcAxis[mCardNo][Axis]->mpStopFlag = &mbStop;
 	}
+
+	mpDMC5000Lib->mpDmcAxis[mCardNo][ccdAxisNo]->setMovePara(speedFromIni.ccdAutoSpeed, ABSOLUTE_MOTION);
+	mpDMC5000Lib->mpDmcAxis[mCardNo][laserAxisNo]->setMovePara(speedFromIni.laserAutoSpeed, ABSOLUTE_MOTION);
+	mpDMC5000Lib->mpDmcAxis[mCardNo][platformAxisNo]->setMovePara(speedFromIni.platAutoSpeed, ABSOLUTE_MOTION);
+
 }
 
 void HSMeasure::initValue()
 {
 	mbStop = false;
 
-	mCurState = NULL_MEASURE;;
-
 	for (size_t i = 0; i <= SlotposNo4; i++)
 	{
-		
+		fixValue.plug[i].ok_ng = 0;
+
 		for (size_t j = 0; j <= GapJ; j++)
 		{
 			fixValue.plug[i].gap[j] = 0;
@@ -463,6 +469,8 @@ void HSMeasure::initValue()
 			fixValue.plug[i].step[j] = 0;
 		}
 	}
+
+	
 }
 
 void HSMeasure::hs_pause()  //暂停button clicked
@@ -501,6 +509,17 @@ void HSMeasure::hs_stop()
 
 	ui.pushButtonStart->setStyleSheet("QPushButton{background:}");
 	ui.pushButtonStop->setStyleSheet("QPushButton{background:red}");
+}
+
+void HSMeasure::hs_RestAlm()
+{
+	sensorOut(RedLight, IO_OFF);
+	sensorOut(YellowLight, IO_ON);
+}
+
+void HSMeasure::hs_Mute()
+{
+	sensorOut(Buzzer, IO_OFF);
 }
 
 bool HSMeasure::go_home()  //回原流程
@@ -618,20 +637,527 @@ void HSMeasure::hs_zero()  //回原button clicked
 	ui.pushButtonStart->setEnabled(true);
 }
 
+void HSMeasure::ok_ngResult()
+{
+	std::array<std::array<float, GapJ + 1>, SlotposNo4 + 1> tGap = gapQueue.dequeue();
+	std::array<std::array<float, StepJ + 1>, SlotposNo4 + 1> tStep = stepQueue.dequeue();
+	
+	for (size_t i = 0; i < SlotposNo4 + 1; i++)
+	{
+		for (size_t j = 0; j < GapJ + 1; j++)
+		{	
+			if (tGap[i][j] < offsetGap_L || tGap[i][j] > offsetGap_H)
+			{
+				fixValue.plug[i].ok_ng |= (1<<0);
+			}
+
+			if (tStep[i][j] < offsetStep_L || tStep[i][j] > offsetStep_H)
+			{
+				fixValue.plug[i].ok_ng |= (1<<1);
+			}
+			
+			fixValue.plug[i].gap[j] = tGap[i][j];
+			fixValue.plug[i].step[j] = tStep[i][j];
+		}
+	}
+}
+
+bool HSMeasure::okUnload()
+{
+	if (fixValue.plug[0].ok_ng != 0 && fixValue.plug[1].ok_ng != 0 && fixValue.plug[2].ok_ng != 0 && fixValue.plug[3].ok_ng != 0)
+	{
+		return true;  //全部ng
+	}
+
+	if (IO_ON == sensorIn(Opposite1))	//进料对射
+	{
+		if (IO_ON == sensorIn(Opposite3))
+		{
+			sensorOut(RedLight, IO_ON);
+			sensorOut(Buzzer, IO_ON);
+		}
+
+		return false;
+	}
+
+
+
+	cylinderMove(UPDOWN_C_1I);
+	cylinderMove(UPDOWN_C_2I);
+	cylinderMove(UPDOWN_C_3I);
+	cylinderMove(UPDOWN_C_4I);
+
+	if (cylinderCheck(UPDOWN_C_1I) != IO_ON || cylinderCheck(UPDOWN_C_2I) != IO_ON || cylinderCheck(UPDOWN_C_3I) != IO_ON || cylinderCheck(UPDOWN_C_4I) != IO_ON)
+	{
+		return false;
+	}
+
+	sensorOut(Vacuum9, IO_OFF);
+	sensorOut(Vacuum10, IO_OFF);
+	sensorOut(Vacuum11, IO_OFF);
+	sensorOut(Vacuum12, IO_OFF);
+
+	if (sensorIn(Vacuum9) != IO_OFF || sensorIn(Vacuum10) != IO_OFF || sensorIn(Vacuum11) != IO_OFF || sensorIn(Vacuum12) != IO_OFF)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool HSMeasure::ngUnload()
+{
+	if (fixValue.plug[0].ok_ng == 0 && fixValue.plug[1].ok_ng == 0 && fixValue.plug[2].ok_ng == 0 && fixValue.plug[3].ok_ng == 0)
+	{
+		return true;  //全部ok
+	}
+	//Y2运动至ng位
+	if (false == mpMOTIONLib->mpDmcAxis[mCardNo][unloadAxisNo]->moveAndCheck(ngPositionY2))
+	{
+		return false;
+	}
+
+	if (fixValue.plug[0].ok_ng != 0)	{ cylinderMove(UPDOWN_C_1I); }
+	if (fixValue.plug[1].ok_ng != 0)	{ cylinderMove(UPDOWN_C_2I); }
+	if (fixValue.plug[2].ok_ng != 0)	{ cylinderMove(UPDOWN_C_3I); }
+	if (fixValue.plug[3].ok_ng != 0)	{ cylinderMove(UPDOWN_C_4I); }
+	
+
+	if (fixValue.plug[0].ok_ng != 0 && cylinderCheck(UPDOWN_C_1I) != IO_ON || cylinderCheck(UPDOWN_C_2I) != IO_ON || cylinderCheck(UPDOWN_C_3I) != IO_ON || cylinderCheck(UPDOWN_C_4I) != IO_ON)
+	{
+		return false;
+	}
+
+	sensorOut(Vacuum9, IO_OFF);
+	sensorOut(Vacuum10, IO_OFF);
+	sensorOut(Vacuum11, IO_OFF);
+	sensorOut(Vacuum12, IO_OFF);
+
+	if (sensorIn(Vacuum9) != IO_OFF || sensorIn(Vacuum10) != IO_OFF || sensorIn(Vacuum11) != IO_OFF || sensorIn(Vacuum12) != IO_OFF)
+	{
+		return false;
+	}
+
+	for (size_t i = 0; i < SlotposNo4 + 1; i++)
+	{	
+		ngTypeQueue.enqueue(fixValue.plug[i].ok_ng);	
+	}
+
+	return true;
+}
+
+void HSMeasure::caseOpposite()
+{
+	if (IO_ON == sensorIn(Opposite3))
+	{
+		sensorOut(LineUnloadOkRun, IO_OFF);
+	}
+	else if (IO_ON == sensorIn(Opposite1))
+	{
+		sensorOut(LineUnloadOkRun, IO_ON);
+	}
+}
+
+inline void HSMeasure::caseFlow1()
+{
+	
+	switch (curStateFlow1)
+	{
+	case 0:
+		if (IO_ON == sensorIn(START))	
+			curStateFlow1++;
+		break;
+
+	case 1:
+		sensorOut(FixtureVacuum, IO_ON);		//治具开真空
+		curStateFlow1++;
+		break;
+
+	case 2:
+		if (IO_ON == sensorIn(FixtureVacuum))
+			curStateFlow1++;
+		break;
+
+	case 3:
+		//光纤信号
+		if (IO_ON == sensorIn(Fiber1) || IO_ON == sensorIn(Fiber2) || IO_ON == sensorIn(Fiber3) || IO_ON == sensorIn(Fiber4))
+			curStateFlow1++;
+		break;
+
+	case 4:
+		cylinderMove(UPDOWN_A_o);		//1~4气缸上升
+		curStateFlow1++;
+		break;
+
+	case 5:
+		if (IO_ON == cylinderCheck(UPDOWN_A_o))
+			curStateFlow1++;
+		break;
+		
+	case 6:
+		cylinderMove(FEED_o);		//送料气缸缩回
+		curStateFlow1++;
+		break;
+	
+	case 7:
+		if (IO_ON == cylinderCheck(FEED_o))
+			curStateFlow1++;
+		break;
+	
+	case 8:
+		cylinderMove(UPDOWN_A_I);	//1~4升降气缸伸出
+		curStateFlow1++;
+		break;
+	
+	case 9:
+		sensorOut(Vacuum1, IO_ON);	//开启1~4路真空
+		sensorOut(Vacuum2, IO_ON);
+		sensorOut(Vacuum3, IO_ON);
+		sensorOut(Vacuum4, IO_ON);
+		curStateFlow1++;
+		break;
+
+	case 10:
+		if (IO_ON == sensorIn(Vacuum1) && IO_ON == sensorIn(Vacuum2) && IO_ON == sensorIn(Vacuum3) && IO_ON == sensorIn(Vacuum4))
+			curStateFlow1++;
+		break;
+	
+	case 11:
+		cylinderMove(UPDOWN_A_o);	//1~4升降气缸缩回
+		curStateFlow1++;
+		break;
+	
+	case 12:
+		if (IO_ON == cylinderCheck(UPDOWN_A_o))	//1~4升降气缸缩回到位
+			curStateFlow1++;
+		break;
+
+	case 13:
+		if (sensorIn(LightCurtain) != IO_ON)	//光幕无信号
+			curStateFlow1++;
+		break;
+
+	case 14:
+		cylinderMove(FEED_I);		//送料气缸伸出
+		curStateFlow1++;
+		break;
+
+	case 15:
+		if (IO_ON == cylinderCheck(FEED_I))	////送料气缸伸出完成
+			curStateFlow1++;
+		break;
+
+	case 16:	
+		curStateFlow1 = -1;
+		
+		if (-1 == curStateFlow2)
+		{
+			curStateFlow2 = 0;
+		}
+
+	default:
+		break;
+	}
+}
+
+inline void HSMeasure::caseFlow2()
+{
+	switch (curStateFlow2)
+	{
+	case 0:
+		cylinderMove(ROTATE_o);	//转动气缸缩回
+		curStateFlow2++;
+		break;
+	case 1:
+		if (IO_ON == cylinderCheck(CLAMP1_o) || modeRunNullFlag)	//判断GAP 松开信号
+			curStateFlow2++;
+		break;
+	case 2:
+		//Y1轴运动至上料位
+		if (true == mpMOTIONLib->mpDmcAxis[mCardNo][platformAxisNo]->moveAndCheck(loadPositionY1))
+		{
+			curStateFlow2++;
+		}
+		
+		break;
+	case 3:
+		cylinderMove(UPDOWN_A_I);	//1~4升降气缸伸出
+		curStateFlow2++;
+		break;
+	case 4:
+		sensorOut(Vacuum1, IO_OFF);	//关闭1~4路真空
+		sensorOut(Vacuum2, IO_OFF);
+		sensorOut(Vacuum3, IO_OFF);
+		sensorOut(Vacuum4, IO_OFF);
+		curStateFlow2++;
+		break;
+	case 5:
+		cylinderMove(UPDOWN_A_o);	//1~4升降气缸缩回
+		curStateFlow2++;
+		break;
+	case 6:
+		if(IO_ON == cylinderCheck(UPDOWN_A_o))	//判断缩回信号
+			curStateFlow2++;
+		break;
+	case 7:
+		cylinderMove(CLAMP1_I);	//GAP夹紧
+		curStateFlow2++;
+		break;
+	case 8:
+		mpBCDH_gap->getGapValueFront();		//GAP正面检测
+		curStateFlow2++;
+		break;
+	case 9:
+		cylinderMove(ROTATE_I);	//转动气缸
+		curStateFlow2++;
+		break;
+	case 10:
+		if(IO_ON == cylinderCheck(ROTATE_I))	//判断
+			curStateFlow2++;
+		break;
+
+	case 11:
+		mpBCDH_gap->getGapValueSide();		//Gap侧面
+
+		gapQueue.enqueue(gapValues);
+
+		curStateFlow2++;
+		break;
+	case 12:
+		cylinderMove(ROTATE_o);	//转动气缸
+		curStateFlow2++;
+		break;
+	case 13:
+		if (IO_ON == cylinderCheck(ROTATE_o))	//判断
+			curStateFlow2++;
+		break;
+	case 14:
+		//Y1轴运动至下料位
+		mpMOTIONLib->mpDmcAxis[mCardNo][platformAxisNo]->moveAndCheckdone(unloadPositionY1, AUTO_MOVE_TIME_OUT);
+		curStateFlow2++;
+		break;
+	case 15:
+		//X2轴安全位置
+		mpMOTIONLib->mpDmcAxis[mCardNo][laserAxisNo]->moveAndCheckdone(LaserSafePosition, AUTO_MOVE_TIME_OUT);
+		curStateFlow2++;
+		break;
+	case 16:
+		//Y2轴运动到取料位
+		mpMOTIONLib->mpDmcAxis[mCardNo][unloadAxisNo]->moveAndCheckdone(loadPositionY2, AUTO_MOVE_TIME_OUT);
+		curStateFlow2++;
+		break;
+	case 17:
+		stepFiberFlag[0] = sensorIn(Fiber1);
+		curStateFlow2++;
+		break;
+	case 18:
+		cylinderMove(UPDOWN_B_I);	//5~8升降气缸下降
+		if (stepFiberFlag[SlotposNo1])	cylinderMove(UPDOWN_C_1I);	
+		if (stepFiberFlag[SlotposNo2])	cylinderMove(UPDOWN_C_2I);	
+		if (stepFiberFlag[SlotposNo3])	cylinderMove(UPDOWN_C_3I);	
+		if (stepFiberFlag[SlotposNo4])	cylinderMove(UPDOWN_C_4I);	//9~12升降气缸下降		
+		curStateFlow2++;
+		break;
+	case 19:
+		sensorOut(Vacuum5, IO_ON);	//开启5~8路真空
+		sensorOut(Vacuum6, IO_ON);
+		sensorOut(Vacuum7, IO_ON);
+		sensorOut(Vacuum8, IO_ON);
+		if (stepFiberFlag[SlotposNo1])	sensorOut(Vacuum9, IO_ON);	//开启9路真空
+		if (stepFiberFlag[SlotposNo2])	sensorOut(Vacuum10, IO_ON);	//
+		if (stepFiberFlag[SlotposNo3])	sensorOut(Vacuum11, IO_ON);	//
+		if (stepFiberFlag[SlotposNo4])	sensorOut(Vacuum12, IO_ON);	//开启12路真空	
+		curStateFlow2++;
+		break;
+	case 20:
+		if (IO_ON == sensorIn(Vacuum5) && IO_ON == sensorIn(Vacuum6) && IO_ON == sensorIn(Vacuum7) && IO_ON == sensorIn(Vacuum8) || modeRunNullFlag)
+			curStateFlow2++;
+		break;	
+	case 21:
+		if (stepFiberFlag[SlotposNo1] && IO_ON == sensorIn(Vacuum9) || modeRunNullFlag)
+			curStateFlow2++;
+		break;
+	case 22:
+		if (stepFiberFlag[SlotposNo2] && IO_ON == sensorIn(Vacuum10) || modeRunNullFlag)
+			curStateFlow2++;
+		break;
+	case 23:
+		if (stepFiberFlag[SlotposNo3] && IO_ON == sensorIn(Vacuum11) || modeRunNullFlag)
+			curStateFlow2++;
+		break;
+	case 24:
+		if (stepFiberFlag[SlotposNo4] && IO_ON == sensorIn(Vacuum12) || modeRunNullFlag)
+			curStateFlow2++;
+		break;
+	case 25:
+		cylinderMove(UPDOWN_B_o);	//5~8升降气缸上升
+		cylinderMove(UPDOWN_C_1o);
+		cylinderMove(UPDOWN_C_2o);
+		cylinderMove(UPDOWN_C_3o);
+		cylinderMove(UPDOWN_C_4o);	//9~12升降气缸上升		
+		curStateFlow2++;
+		break;
+	case 26:
+		if (IO_ON == cylinderCheck(UPDOWN_B_o) 
+			&& IO_ON == cylinderCheck(UPDOWN_C_1o) && IO_ON == cylinderCheck(UPDOWN_C_2o) && IO_ON == cylinderCheck(UPDOWN_C_3o) && IO_ON == cylinderCheck(UPDOWN_C_4o)
+			|| modeRunNullFlag)
+		{
+			curStateFlow2++;
+		}
+		break;
+	case 27:
+		curStateFlow2 = 0;
+		if (-1 == curStateFlow3)
+		{
+			curStateFlow3 = 0;
+		}
+
+	default:
+		break;
+	}
+}
+
+inline void HSMeasure::caseFlow3()
+{
+	switch (curStateFlow3)
+	{
+	case 0:
+		//Y2轴运动至STEP放料位
+		if (true == mpMOTIONLib->mpDmcAxis[mCardNo][unloadAxisNo]->moveAndCheck(stepPositionY2))
+			curStateFlow3++;	
+		break;
+	case 1:
+		if (IO_ON == sensorIn(Vacuum5) && IO_ON == sensorIn(Vacuum6) && IO_ON == sensorIn(Vacuum7) && IO_ON == sensorIn(Vacuum8) || modeRunNullFlag)
+			curStateFlow3++;
+		break;
+	case 2:
+		sensorOut(Vacuum5, IO_OFF);	//关闭5~8路真空
+		sensorOut(Vacuum6, IO_OFF);
+		sensorOut(Vacuum7, IO_OFF);
+		sensorOut(Vacuum8, IO_OFF);
+		curStateFlow3++;
+		break;
+	case 3:
+		cylinderMove(UPDOWN_B_o);	//5~8升降气缸上升
+		curStateFlow3++;
+		break;
+	case 4:
+		if (IO_ON == cylinderCheck(UPDOWN_B_o) || modeRunNullFlag)
+			curStateFlow3++;
+		break;
+	case 5:
+		cylinderMove(CLAMP2_I);	//STEP气缸夹紧
+		curStateFlow3++;
+		break;
+	case 6:
+		//Y2轴在安全位置？		
+		curStateFlow3++;
+	
+		break;
+	case 7:
+		//
+		if (-1 == curStateFlow4)
+		{
+			curStateFlow4 = 0;
+		}
+		
+		if (false == mpBCDH_step->getStepValue())
+		{
+			break;
+		}
+
+		stepQueue.enqueue(gapValues);
+		saveValueToLog(fixValue);
+		showValueToUi(fixValue);
+		curStateFlow3++;
+		break;
+	}
+
+}
+
+void HSMeasure::caseFlow4()	//下料过程
+{
+	switch (curStateFlow4)
+	{
+	case 0:
+		if (stepQueue.isEmpty())	
+			break;	
+		curStateFlow4++;
+		break;
+	case 1:
+		ok_ngResult();
+		curStateFlow4++;
+		break;
+	case 2:
+		//Y2运动至下料位 ok料
+		if (true == mpMOTIONLib->mpDmcAxis[mCardNo][unloadAxisNo]->moveAndCheck(unloadPositionY2))
+		{
+			curStateFlow4++;
+		}	
+		break;
+	case 3:
+		if (!sensorIn(Opposite1))
+			curStateFlow4++;
+		break;
+	case 4:
+		if (IO_ON == sensorIn(Vacuum9) && IO_ON == sensorIn(Vacuum10) && IO_ON == sensorIn(Vacuum11) && IO_ON == sensorIn(Vacuum12) || modeRunNullFlag)
+			curStateFlow4++;
+		break;
+	case 5:
+		if (true == ngUnload())
+			curStateFlow4++;
+		break;	
+	case 6:
+		cylinderMove(UPDOWN_C_1o);
+		cylinderMove(UPDOWN_C_2o);
+		cylinderMove(UPDOWN_C_3o);
+		cylinderMove(UPDOWN_C_4o);
+		if (IO_ON == cylinderCheck(UPDOWN_C_1o) && IO_ON == cylinderCheck(UPDOWN_C_2o) && IO_ON == cylinderCheck(UPDOWN_C_3o) && IO_ON == cylinderCheck(UPDOWN_C_4o))
+			curStateFlow4++;
+		break;
+	case 7:
+		if (true == okUnload())
+			curStateFlow4++;
+		break;
+	case 8:
+		cylinderMove(UPDOWN_C_1o);
+		cylinderMove(UPDOWN_C_2o);
+		cylinderMove(UPDOWN_C_3o);
+		cylinderMove(UPDOWN_C_4o);
+		if (IO_ON == cylinderCheck(UPDOWN_C_1o) && IO_ON == cylinderCheck(UPDOWN_C_2o) && IO_ON == cylinderCheck(UPDOWN_C_3o) && IO_ON == cylinderCheck(UPDOWN_C_4o))
+			curStateFlow4++;
+		break;
+
+	case 9:
+		curStateFlow4 = 0;
+		break;
+	default:
+		break;
+	}
+}
+
 void MY_THREAD::run()  //运动流程
 {
-
-	mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->ccdAxisNo]->setMovePara(mpHSMeasure->speedFromIni.ccdAutoSpeed, ABSOLUTE_MOTION);
-	mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->setMovePara(mpHSMeasure->speedFromIni.laserAutoSpeed, ABSOLUTE_MOTION);
-	mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->platformAxisNo]->setMovePara(mpHSMeasure->speedFromIni.platAutoSpeed, ABSOLUTE_MOTION);
-
+	
 	while (true)
 	{
+		short ioStart = mpHSMeasure->sensorIn(START);
+		short ioConfirm = mpHSMeasure->sensorIn(CONFIRM);
+		short ioStop = mpHSMeasure->sensorIn(STOP);
+		short ioEmgStop = mpHSMeasure->sensorIn(EMGSTOP);
+		short ioCurMode = mpHSMeasure->sensorIn(SWITCH_MODE);
+
+		if (IO_ON == ioEmgStop)			//急停
+		{
+			this->mpHSMeasure->mbStop = true;
+			break;
+		}
+
 		mMutex.lock();
 		if (true == this->mpHSMeasure->mbStop)
 		{
 			mMutex.unlock();
-			break;
+			continue;
 		}
 
 		if (true == this->mpHSMeasure->mbPause)
@@ -641,57 +1167,40 @@ void MY_THREAD::run()  //运动流程
 		}
 		mMutex.unlock();
 
-		WORD portno = 0;
+		mpHSMeasure->caseFlow1();
+		mpHSMeasure->caseFlow2();
+		mpHSMeasure->caseFlow3();
+		mpHSMeasure->caseFlow4();
 
-		DWORD ioStates = dmc_read_inport(mpHSMeasure->mCardNo, portno);
+		//ng打点
+
+
+
+
+
+
+		//io
+		mpHSMeasure->caseOpposite();
+
+
+
+
 
 		QSettings settings(mPath +"/cfg/config.ini", QSettings::IniFormat);
 		int bStart = settings.value("DEBUG/BSTART").toInt();
 
-		if ((1 == ioStates && 1 == ioStates) || 1 == bStart)
+		if ((IO_ON == ioStart && IO_ON == ioConfirm) || 1 == bStart)
 		{
 			settings.setValue("DEBUG/BSTART","0");
 			
-			mpHSMeasure->mCurState = GAP_MEASURE;			
-		}
-		
-		switch (mpHSMeasure->mCurState)
-		{
-		case GAP_MEASURE:
-			if (false == mpBCDH_gap->getGapValue())
+			if (-1 == mpHSMeasure->curStateFlow1)
 			{
-				return;
-			}
-
-			this->mpHSMeasure->mCurState++;
-
-			break;
-		case STEP_MEASURE:
-
-			mpBCDH_step->getStepValue();
-			mpHSMeasure->saveValueToLog(mpHSMeasure->fixValue);
-			mpHSMeasure->showValueToUi(mpHSMeasure->fixValue);
-			this->mpHSMeasure->mCurState++;
-			break;
-
-		case UNLOAD:
-			mpHSMeasure->mpDMC5000Lib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->moveAndCheckdone(mpHSMeasure->LaserSafePosition, DEFAUL_HOME_TIME_OUT);
-			this->mpHSMeasure->mCurState++;
-			break;
-
-		default:
-			break;
-
+				mpHSMeasure->curStateFlow1 = 0;
+			}		
 		}
 		
-
-		if (this->mpHSMeasure->mCurState > FINISH)
-		{
-			this->mpHSMeasure->mCurState = NULL_MEASURE;
-
-			break;
-		}
-
+	
+		
 		qDebug() << "runing..." << QThread::currentThreadId();
 		QApplication::processEvents();
 		QThread::msleep(1000);
@@ -718,6 +1227,7 @@ void HSMeasure::hs_start()  //启动button clicked
 	ui.pushButtonStart->setEnabled(false);
 	ui.pushButtonZero->setEnabled(false);
 
+	
 }
 
 void HSMeasure::show_msg(const QString &msg)
@@ -749,8 +1259,12 @@ void HSMeasure::load_ini()
 	unloadAxisNo = settings.value("AXIS_NO_CFG/unloadAxisNo").toInt();
 
 	LaserSafePosition = settings.value("POSITION/LaserSafePosition").toInt();
-	FeedingPosition = settings.value("POSITION/FeedingPosition").toInt();
-	
+	loadPositionY1 = settings.value("POSITION/loadPositionY1").toInt();
+	unloadPositionY1 = settings.value("POSITION/unloadPositionY1").toInt();
+	loadPositionY2 = settings.value("POSITION/loadPositionY2").toInt();
+	unloadPositionY2 = settings.value("POSITION/unloadPositionY2").toInt();
+	stepPositionY2 = settings.value("POSITION/stepPositionY2").toInt();
+	ngPositionY2 = settings.value("POSITION/ngPositionY2").toInt();
 	//
 	speedFromIni.ccdHomeSpeed = settings.value("SPEED/ccdHomeSpeed").toDouble();
 	speedFromIni.laserHomeSpeed = settings.value("SPEED/laserHomeSpeed").toDouble();
@@ -770,6 +1284,14 @@ void HSMeasure::load_ini()
 	speedFromIni.platAutoSpeed = settings.value("SPEED/platAutoSpeed").toDouble();
 	speedFromIni.rotateAutoSpeed = settings.value("SPEED/rotateAutoSpeed").toDouble();
 	speedFromIni.unloadAutoSpeed = settings.value("SPEED/unloadAutoSpeed").toDouble();
+	//
+	offsetGap_L = settings.value("OFFSET/offsetGap_L").toFloat();
+	offsetGap_H = settings.value("OFFSET/offsetGap_H").toFloat();
+	offsetStep_L = settings.value("OFFSET/offsetStep_L").toFloat();
+	offsetStep_H = settings.value("OFFSET/offsetStep_H").toFloat();
+
+	//
+	modeRunNullFlag = settings.value("DEBUG/modeRunNullFlag").toInt();
 }
 
 void HSMeasure::save_ini()

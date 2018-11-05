@@ -17,12 +17,16 @@
 #include <QGridLayout>
 #include <QMetaType>
 #include <memory>
+#include <QQueue>
+#include <array>
+
 #include "define.h"
+#include "defineIo.h"
+
 #include "Lib/motionLib.hpp"
 #include "Lib/communicateLib.hpp"
 
 class HSMeasure;
-
 
 class MY_THREAD : public QObject
 {
@@ -79,6 +83,31 @@ public:
 	void showLogToUi();
 	void saveValueToLog(const FIX_VALUE&);
 
+	bool ioOut(const QString, const WORD);
+	short ioGet(const QString);
+	void cylinderMove(const IO_CYLINDER);
+	short cylinderCheck(const IO_CYLINDER);
+	void sensorOut(const IO_SENSOR, const short);
+	short sensorIn(const IO_SENSOR);
+
+	void initUiIo();
+	void load_ini();
+
+	void ok_ngResult();
+	bool okUnload();
+	bool ngUnload();
+	void caseOpposite();
+	inline void caseFlow1();
+	inline void caseFlow2();
+	inline void caseFlow3();
+	void caseFlow4();
+	int curStateFlow1 = -1;
+	int curStateFlow2 = -1;
+	int curStateFlow3 = -1;
+	int curStateFlow4 = -1;
+	int stepFiberFlag[SlotposNo4 + 1];
+	
+	int modeRunNullFlag;
 	//
 	_MOTIONCLASS::DMC5000Lib* mpDMC5000Lib = new _MOTIONCLASS::DMC5000Lib(1,8);
 	_MOTIONCLASS::DMC5000Lib* mpMOTIONLib = mpDMC5000Lib;
@@ -100,10 +129,21 @@ public:
 
 	QCheckBox* pBitInG[IO_EX_NUM][IO_BIT_NUM];
 	QCheckBox* pBitOutG[IO_EX_NUM][IO_BIT_NUM];
-
+	
 	//	
 	bool flagSlot[SlotposNo4 + 1];
+
 	FIX_VALUE fixValue;
+	float offsetGap_L;
+	float offsetGap_H;
+	float offsetStep_L;
+	float offsetStep_H;
+	std::array<std::array<float, GapJ + 1>, SlotposNo4 + 1> gapValues;
+	std::array<std::array<float, StepJ + 1>, SlotposNo4 + 1> stepValues;
+	QQueue<std::array<std::array<float, GapJ + 1>, SlotposNo4 + 1>> gapQueue;
+	QQueue<std::array<std::array<float, StepJ + 1>, SlotposNo4 + 1>> stepQueue;
+	
+	QQueue<int> ngTypeQueue;
 
 	int mCardNo = 0;
 	QTimer *pIoTimer;
@@ -116,13 +156,18 @@ public:
 	SPEED_FROM_INI speedFromIni;
 
 	long LaserSafePosition;
-	long FeedingPosition;
+	long loadPositionY1;
+	long unloadPositionY1;
+	long loadPositionY2;
+	long unloadPositionY2;
+	long stepPositionY2;
+	long ngPositionY2;
 
 	bool bNext;
 	bool mbPause = false;
 	bool mbStop = false;
 	QStringList mStatusList;
-	STATE_FLOW  mCurState = NULL_MEASURE;
+	
 	std::shared_ptr <MY_THREAD> pWorkThread;
 	std::shared_ptr <MY_THREAD> pIoThread;
 
@@ -146,8 +191,6 @@ public:
 private:
 	Ui::HSMeasureClass ui;
 	void init();
-	void initUiIo();
-	void load_ini();
 
 	QMutex m_mutex;
 	QMutex ioMutex;
@@ -171,6 +214,8 @@ private:
 	void hs_pause();
 	void hs_zero();
 	void hs_stop();
+	void hs_RestAlm();
+	void hs_Mute();
 	//
 	void onIoTimer();
 	void onTabWidgetChanged(int);

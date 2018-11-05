@@ -40,6 +40,7 @@ private:
 	float posLaserAxis[laserPos11 + 1];
 	float posPlat;
 
+	int mCurStep = 0;
 	HSMeasure* mpHSMeasure;
 };
 

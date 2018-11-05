@@ -95,12 +95,12 @@ bool BCDH_gap::getGapValue(const GAP_NO gapNo, float gapValue[])
 
 	showMsgSignal(QString("arrayGapPos[gapNo].ccdPos:%1").arg(arrayGapPos[gapNo].ccdPos));
 
-	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->ccdAxisNo]->moveAndCheckdone(arrayGapPos[gapNo].ccdPos, DEFAUL_HOME_TIME_OUT))
+	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->ccdAxisNo]->moveAndCheck(arrayGapPos[gapNo].ccdPos))
 	{
 		return false;
 	}
 
-	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->platformAxisNo]->moveAndCheckdone(arrayGapPos[gapNo].platPos, DEFAUL_HOME_TIME_OUT))
+	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->platformAxisNo]->moveAndCheck(arrayGapPos[gapNo].platPos))
 	{
 		return false;
 	}
@@ -145,7 +145,7 @@ bool BCDH_gap::getGapValue()
 			*/
 		}
 		
-		float tValue[SlotposNo4 + 1] = {0.0};
+		float tValue[SlotposNo4 + 1] = {-1};
 				
 		if (false == getGapValue((GAP_NO)j, tValue))
 		{
@@ -153,12 +153,58 @@ bool BCDH_gap::getGapValue()
 			return false;
 		}
 
-		mpHSMeasure->fixValue.plug[SlotposNo1].gap[j] = tValue[SlotposNo1];
-		mpHSMeasure->fixValue.plug[SlotposNo2].gap[j] = tValue[SlotposNo2];
-		mpHSMeasure->fixValue.plug[SlotposNo3].gap[j] = tValue[SlotposNo3];
-		mpHSMeasure->fixValue.plug[SlotposNo4].gap[j] = tValue[SlotposNo4];
+		mpHSMeasure->gapValues[SlotposNo1][j] = tValue[SlotposNo1];
+		mpHSMeasure->gapValues[SlotposNo2][j] = tValue[SlotposNo2];
+		mpHSMeasure->gapValues[SlotposNo3][j] = tValue[SlotposNo3];
+		mpHSMeasure->gapValues[SlotposNo4][j] = tValue[SlotposNo4];
 	}
 	
 	return true;
 }
+
+bool BCDH_gap::getGapValueFront()
+{
+	for (; mCurStep < GapE + 1; mCurStep++)
+	{
+
+		float tValue[SlotposNo4 + 1] = { -1 };
+
+		if (false == getGapValue((GAP_NO)mCurStep, tValue))
+		{
+
+			return false;
+		}
+
+		mpHSMeasure->gapValues[SlotposNo1][mCurStep] = tValue[SlotposNo1];
+		mpHSMeasure->gapValues[SlotposNo2][mCurStep] = tValue[SlotposNo2];
+		mpHSMeasure->gapValues[SlotposNo3][mCurStep] = tValue[SlotposNo3];
+		mpHSMeasure->gapValues[SlotposNo4][mCurStep] = tValue[SlotposNo4];
+	}
+
+	return true;
+}
+
+
+bool BCDH_gap::getGapValueSide()
+{
+	for (; mCurStep < GapJ + 1; mCurStep++)
+	{
+
+		float tValue[SlotposNo4 + 1] = { -1 };
+
+		if (false == getGapValue((GAP_NO)mCurStep, tValue))
+		{
+			return false;
+		}
+
+		mpHSMeasure->gapValues[SlotposNo1][mCurStep] = tValue[SlotposNo1];
+		mpHSMeasure->gapValues[SlotposNo2][mCurStep] = tValue[SlotposNo2];
+		mpHSMeasure->gapValues[SlotposNo3][mCurStep] = tValue[SlotposNo3];
+		mpHSMeasure->gapValues[SlotposNo4][mCurStep] = tValue[SlotposNo4];
+	}
+
+	mCurStep = 0;
+	return true;
+}
+
 

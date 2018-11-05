@@ -160,12 +160,12 @@ bool BCDH_step::getStepValue(QString posStep, float& stepValue)
 
 	showMsgSignal(QString("posLaserAxis[arrayStepMap[POS_STEP.indexOf(posStep)].laserPos]:%1").arg(posLaserAxis[arrayStepMap[POS_STEP.indexOf(posStep)].laserPos]));
 
-	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->platformAxisNo]->moveAndCheckdone(posPlat, DEFAUL_MOVE_TIME_OUT))
+	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->platformAxisNo]->moveAndCheck(posPlat))
 	{
 		return false;
 	}
 	
-	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->moveAndCheckdone(posLaserAxis[arrayStepMap[a].laserPos], DEFAUL_MOVE_TIME_OUT))
+	if (false == mpHSMeasure->mpMOTIONLib->mpDmcAxis[mpHSMeasure->mCardNo][mpHSMeasure->laserAxisNo]->moveAndCheck(posLaserAxis[arrayStepMap[a].laserPos]))
 	{
 		return false;
 	}
@@ -173,11 +173,37 @@ bool BCDH_step::getStepValue(QString posStep, float& stepValue)
 
 	Sleep(300);
 	
-	//arrayStepMap[a].laserNo
+	
 	//
-	float buf1[800];
+	int tLaserNo = arrayStepMap[a].laserNo;
 
-	GetOneHeadData(LJIF_PROFILETARGET_HEAD_A, laser1_config, buf1);
+	float buf1[LASER_VALUE_NUM];
+	QVector<double> x(LASER_VALUE_NUM), y(LASER_VALUE_NUM);
+	
+	switch (tLaserNo)
+	{
+	case 0:
+		GetOneHeadData(LJIF_PROFILETARGET_HEAD_A, laser1_config, buf1); break;
+	case 1:
+		GetOneHeadData(LJIF_PROFILETARGET_HEAD_B, laser1_config, buf1); break;
+	case 2:
+		GetOneHeadData(LJIF_PROFILETARGET_HEAD_A, laser2_config, buf1); break;
+	case 3:
+		GetOneHeadData(LJIF_PROFILETARGET_HEAD_B, laser2_config, buf1); break;
+	case 4:
+		GetOneHeadData(LJIF_PROFILETARGET_HEAD_A, laser3_config, buf1); break;
+	case 5:
+		GetOneHeadData(LJIF_PROFILETARGET_HEAD_B, laser3_config, buf1); break;
+	default:
+		break;
+	}
+
+	for (size_t i = 0; i < LASER_VALUE_NUM; i++)
+	{
+		x.push_back(i);
+		y.push_back(buf1[i]);
+	}
+
 
 	for (size_t i = 0; i < 800; i += 10)
 	{
@@ -190,7 +216,10 @@ bool BCDH_step::getStepValue(QString posStep, float& stepValue)
 
 	}
 
+	//
 	stepValue = buf1[500];
+
+	mpHSMeasure->m_laserEditor[arrayStepMap[a].laserNo]->show_line(x, y);
 
 	return true;
 }
@@ -200,21 +229,22 @@ bool BCDH_step::getStepValue()
 
 	float tValue(0);
 
-	for (size_t i = 0; i < POS_STEP.size(); i++)
+	for (; mCurStep < POS_STEP.size(); mCurStep++)
 	{
-		if (false == getStepValue(POS_STEP[i], tValue))
+		if (false == getStepValue(POS_STEP[mCurStep], tValue))
 		{
 			return false;
 		}
 
-		int slotNo = POS_STEP[i].right(1).toInt() - 1;
+		int slotNo = POS_STEP[mCurStep].right(1).toInt() - 1;
 
-		QByteArray tByteArray = POS_STEP[i].mid(4, 1).toLocal8Bit();
+		QByteArray tByteArray = POS_STEP[mCurStep].mid(4, 1).toLocal8Bit();
 		int stepNo = tByteArray[0] - 'A';
 
-		mpHSMeasure->fixValue.plug[slotNo].step[stepNo] = tValue;
+		mpHSMeasure->stepValues[slotNo][stepNo] = tValue;
 	}
 	
+	mCurStep = 0;
 
 	return true;
 }

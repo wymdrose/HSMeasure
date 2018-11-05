@@ -269,6 +269,24 @@ class DMC5000Lib : public MOTIONLib
 			}	
 		}
 
+		bool moveAndCheck(long nPulse)
+		{
+			if (true == *mpStopFlag)
+			{
+				dmc_stop(mCardNo, mAxisNo, 1);
+				return false;
+			}
+
+			move(nPulse);
+
+			if (0 == dmc_check_done(mCardNo, mAxisNo))
+			{
+				return false;
+			}
+
+			return true;
+		}
+
 		bool moveAndCheckdone(long nPulse, const DWORD outTime)
 		{
 			if (true == *mpStopFlag)
@@ -303,7 +321,6 @@ class DMC5000Lib : public MOTIONLib
 
 			return true;
 		}
-
 
 
 		long curPosition()

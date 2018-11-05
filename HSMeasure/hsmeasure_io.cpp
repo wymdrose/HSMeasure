@@ -4,7 +4,7 @@
 #include "bcdh_step.h"
 
 extern QString mPath;
-
+QMap<QString, QString> ioMap;
 
 void MY_THREAD::fun()
 {
@@ -36,8 +36,272 @@ void HSMeasure::onCheckBoxIo() //????
 	dmc_write_outport(mCardNo, 0, 0);
 }
 
+bool getIoMapFromCfg()
+{
+	QString fileName = QCoreApplication::applicationDirPath() +"/cfg/ioMap.csv";
+
+	QFile csvFile(fileName);
+
+	QStringList CSVList;
+
+	if (!csvFile.open(QIODevice::ReadOnly))
+	{
+		return false;
+	}
+
+	QTextStream stream(&csvFile);
+
+	while (!stream.atEnd())
+	{
+		CSVList.push_back(stream.readLine());
+	}
+	csvFile.close();
+
+	for (size_t i = 0; i < CSVList.size(); i++)
+	{
+		QStringList oneLine = CSVList[i].split(",");
+
+		ioMap[oneLine[1]] = oneLine[0];
+	}
+
+	return true;
+}
+
+bool HSMeasure::ioOut(const QString io, const WORD on_off)
+{
+	if (io.left(3) != "OUT" || io.size() < 4)
+	{
+		return false;
+	}
+
+	if (io.size() < 5)
+	{
+		dmc_write_outbit(mCardNo, io.right(1).toInt(), on_off);
+	}
+	else
+	{
+		dmc_write_can_outbit(mCardNo, io.mid(3,1).toInt(), io.right(1).toInt(0,16), on_off);
+	}
+
+	return true;
+}
+
+short HSMeasure::ioGet(const QString io)
+{
+	if (io.left(2) == "IN")
+	{
+		if (3 == io.size())
+		{
+			return dmc_read_inbit(mCardNo, io.right(1).toInt(0, 16));
+		}
+		else
+		{
+			return dmc_read_can_inbit(mCardNo, io.mid(3, 1).toInt(), io.right(1).toInt(0, 16));
+		}
+	}
+
+	else if(io.left(3) == "OUT")
+	{
+		if (3 == io.size())
+		{
+			return dmc_read_outbit(mCardNo, io.right(1).toInt(0, 16));
+		}
+		else
+		{
+			return dmc_read_can_outbit(mCardNo, io.mid(3, 1).toInt(), io.right(1).toInt(0, 16));
+		}
+	}
+
+	else
+		return -1;
+}
+
+void HSMeasure::cylinderMove(const IO_CYLINDER name)	//气缸运动
+{
+	switch (name)
+	{
+	case FEED_o:
+		ioOut("OUT7", IO_OFF);
+		ioOut("OUT8", IO_ON);
+		break;
+
+	case FEED_I:
+		ioOut("OUT8", IO_OFF);
+		ioOut("OUT7", IO_ON);
+		break;
+	case CLAMP1_o:
+		ioOut("OUT13", IO_OFF);
+		ioOut("OUT14", IO_ON);
+		break;
+	case CLAMP1_I:
+		ioOut("OUT14", IO_OFF);
+		ioOut("OUT13", IO_ON);
+		break;
+	case UPDOWN_A_o:
+		ioOut("OUT9", IO_OFF);
+		ioOut("OUTA", IO_ON);
+		break;
+	case UPDOWN_A_I:
+		ioOut("OUTA", IO_OFF);
+		ioOut("OUT9", IO_ON);
+		break;
+
+	case UPDOWN_B_o :
+		ioOut("OUT15", IO_OFF);
+		ioOut("OUT16", IO_ON);
+		break;
+	case UPDOWN_B_I:
+		ioOut("OUT16", IO_OFF);
+		ioOut("OUT15", IO_ON);
+		break;
+
+	case UPDOWN_C_1o:
+		ioOut("OUT1D", IO_OFF);
+		ioOut("OUT1E", IO_ON);
+		break;
+	case UPDOWN_C_1I:
+		ioOut("OUT1E", IO_OFF);
+		ioOut("OUT1D", IO_ON);
+		break;
+
+	case UPDOWN_C_2o:
+		ioOut("OUT1F", IO_OFF);
+		ioOut("OUT20", IO_ON);
+		break;
+	case UPDOWN_C_2I:
+		ioOut("OUT20", IO_OFF);
+		ioOut("OUT1F", IO_ON);
+		break;
+
+	case UPDOWN_C_3o:
+		ioOut("OUT21", IO_OFF);
+		ioOut("OUT22", IO_ON);
+		break;
+	case UPDOWN_C_3I:
+		ioOut("OUT22", IO_OFF);
+		ioOut("OUT21", IO_ON);
+		break;
+
+
+	case UPDOWN_C_4o:
+		ioOut("OUT23", IO_OFF);
+		ioOut("OUT24", IO_ON);
+		break;
+	case UPDOWN_C_4I:
+		ioOut("OUT24", IO_OFF);
+		ioOut("OUT23", IO_ON);
+		break;
+
+	default:
+		break;
+	}
+}
+
+short HSMeasure::cylinderCheck(const IO_CYLINDER name)		//气缸到位检查
+{
+	switch (name)
+	{
+
+	case FEED_o:
+		return ioGet("IN11");
+	case FEED_I:
+		return ioGet("IN12");
+	case CLAMP1_o:
+		return ioGet("IN1C");
+	case CLAMP1_I:
+		return ioGet("IN1B");
+	case UPDOWN_A_o:
+		return ioGet("IN13") && ioGet("IN14") && ioGet("IN15") && ioGet("IN16");
+	default:
+		break;
+	}
+
+	return -1;
+}
+
+void HSMeasure::sensorOut(const IO_SENSOR name, const short on_off)
+{
+	switch (name)
+	{
+	case RedLight:		ioOut("OUT0", on_off);		break;
+	case YellowLight:	ioOut("OUT1", on_off);		break;
+	case GreenLight:	ioOut("OUT2", on_off);		break;
+	case Buzzer:		ioOut("OUT3", on_off);		break;
+	
+	case FixtureVacuum:	ioOut("OUT6", on_off);	break;
+	
+	case Vacuum1:		ioOut("OUT17", on_off);		break;
+	case Vacuum2:		ioOut("OUT18", on_off);		break;
+	case Vacuum3:		ioOut("OUT19", on_off);		break;
+	case Vacuum4:		ioOut("OUT1A", on_off);		break;
+
+	case Vacuum5:		ioOut("OUT21", on_off);		break;
+	case Vacuum6:		ioOut("OUT22", on_off);		break;
+	case Vacuum7:		ioOut("OUT23", on_off);		break;
+	case Vacuum8:		ioOut("OUT24", on_off);		break;
+
+	case Vacuum9:		ioOut("OUT25", on_off);		break;
+	case Vacuum10:		ioOut("OUT26", on_off);		break;
+	case Vacuum11:		ioOut("OUT27", on_off);		break;
+	case Vacuum12:		ioOut("OUT28", on_off);		break;
+	
+	default:
+		break;
+	}
+}
+
+short HSMeasure::sensorIn(const IO_SENSOR name)
+{
+	
+	switch (name)
+	{
+	case START:			return ioGet("IN0");	
+	case STOP:			return ioGet("IN1");
+	case RESET:			return ioGet("IN2");
+	case EMGSTOP:			return ioGet("IN3");
+	case CONFIRM:			return ioGet("IN4");		
+	case SWITCH_MODE:		return ioGet("IN5");
+	
+	case	LightCurtain:	return ioGet("IN33");
+	
+	case Fiber1:	return ioGet("IN6");
+	case Fiber2:	return ioGet("IN7");
+	case Fiber3:	return ioGet("IN8");
+	case Fiber4:	return ioGet("IN9");
+	
+	case Opposite1: return ioGet("IN2E");
+	case Opposite2: return ioGet("IN2F");
+	case Opposite3: return ioGet("IN30");
+
+	case FixtureVacuum:	return ioGet("IN10");
+	
+	case Vacuum1:		return ioGet("INA");
+	case Vacuum2:		return ioGet("INB");
+	case Vacuum3:		return ioGet("INC");
+	case Vacuum4:		return ioGet("IND");
+						
+	case Vacuum5:		return ioGet("IN17");
+	case Vacuum6:		return ioGet("IN18");
+	case Vacuum7:		return ioGet("IN19");
+	case Vacuum8:		return ioGet("IN1A");
+						
+	case Vacuum9:		return ioGet("IN21");
+	case Vacuum10:		return ioGet("IN22");
+	case Vacuum11:		return ioGet("IN23");
+	case Vacuum12:		return ioGet("IN24");
+
+
+	default:
+		break;
+	}
+
+	return -1;
+}
+
 void HSMeasure::initUiIo()
 {
+	getIoMapFromCfg();
+
 	//专用IO
 	for (size_t i = 0; i < AXIS_NUM; i++)
 	{
@@ -51,7 +315,7 @@ void HSMeasure::initUiIo()
 				switch (j)
 				{
 				case 0:	//
-					pBitOutS[i][j]->isChecked() ? dmc_write_erc_pin(mCardNo, i, 0) : dmc_write_sevon_pin(mCardNo, i, 1);
+					pBitOutS[i][j]->isChecked() ? dmc_write_erc_pin(mCardNo, i, IO_ON) : dmc_write_sevon_pin(mCardNo, i, IO_OFF);
 					break;
 				case 1: 
 					
@@ -60,7 +324,7 @@ void HSMeasure::initUiIo()
 					
 					break;
 				case 3:
-					pBitOutS[i][j]->isChecked() ? dmc_write_sevon_pin(mCardNo, i, 0) : dmc_write_sevon_pin(mCardNo, i, 1);
+					pBitOutS[i][j]->isChecked() ? dmc_write_sevon_pin(mCardNo, i, IO_ON) : dmc_write_sevon_pin(mCardNo, i, IO_OFF);
 					break;
 				
 				default:
@@ -128,50 +392,16 @@ void HSMeasure::initUiIo()
 		pBitInM[i] = findChild<QCheckBox*>("checkBoxInM_" + QString::number(i + 1));
 		pBitOutM[i] = findChild<QCheckBox*>("checkBoxOutM_" + QString::number(i + 1));
 		
+		pBitInM[i]->setText(ioMap.value("IN" + QString::number(i, 16).toUpper()));
+		pBitOutM[i]->setText(ioMap.value("OUT" + QString::number(i, 16).toUpper()));
+
 		connect(pBitOutM[i], &QCheckBox::clicked, [this, i]()
 		{
 			ioMutex.lock();
-			pBitOutM[i]->isChecked() ? dmc_write_outbit(mCardNo, i, 0) : dmc_write_outbit(mCardNo, i, 1);
+			pBitOutM[i]->isChecked() ? dmc_write_outbit(mCardNo, i, IO_ON) : dmc_write_outbit(mCardNo, i, IO_OFF);
 			ioMutex.unlock();
 		});	
 	}
-
-	pBitInM[0]->setText(QStringLiteral("启动"));
-	pBitInM[1]->setText(QStringLiteral("停止"));
-	pBitInM[2]->setText(QStringLiteral("复位"));
-	pBitInM[3]->setText(QStringLiteral("急停"));
-	pBitInM[4]->setText(QStringLiteral("人工确认"));
-	pBitInM[5]->setText(QStringLiteral("生产/复检"));
-	pBitInM[6]->setText(QStringLiteral("光纤有料检测1"));
-	pBitInM[7]->setText(QStringLiteral("光纤有料检测2"));
-	pBitInM[8]->setText(QStringLiteral("光纤有料检测3"));
-	pBitInM[9]->setText(QStringLiteral("光纤有料检测4"));
-	pBitInM[10]->setText(QStringLiteral("真空吸料检测1"));
-	pBitInM[11]->setText(QStringLiteral("真空吸料检测2"));
-	pBitInM[12]->setText(QStringLiteral("真空吸料检测3"));
-	pBitInM[13]->setText(QStringLiteral("真空吸料检测4"));
-	pBitInM[14]->setText(QStringLiteral("备用（LTC0）"));
-	pBitInM[15]->setText(QStringLiteral("备用（LTC1）"));
-	//
-	pBitOutM[0]->setText(QStringLiteral("红灯"));
-	pBitOutM[1]->setText(QStringLiteral("黄灯"));
-	pBitOutM[2]->setText(QStringLiteral("绿灯"));
-	pBitOutM[3]->setText(QStringLiteral("蜂鸣器"));
-	pBitOutM[4]->setText(QStringLiteral("OK线启动"));
-	pBitOutM[5]->setText(QStringLiteral("NG线启动"));
-	pBitOutM[6]->setText(QStringLiteral("治具真空打开"));
-	pBitOutM[7]->setText(QStringLiteral("送料气缸进"));
-	pBitOutM[8]->setText(QStringLiteral("送料气缸退"));
-	pBitOutM[9]->setText(QStringLiteral("升降气缸下降"));
-	pBitOutM[10]->setText(QStringLiteral("升降气缸上升"));
-	pBitOutM[11]->setText(QStringLiteral("真空吸打开1"));
-	pBitOutM[12]->setText(QStringLiteral("备用(CMP0)"));
-	pBitOutM[13]->setText(QStringLiteral("备用(CMP1)"));
-	pBitOutM[14]->setText(QStringLiteral("备用(CMP2)"));
-	pBitOutM[15]->setText(QStringLiteral("备用(CMP3)"));
-
-
-
 
 	//CAN
 	for (size_t i = 0; i < IO_EX_NUM; i++)
@@ -181,117 +411,18 @@ void HSMeasure::initUiIo()
 			pBitInG[i][j] = findChild<QCheckBox*>("checkBoxInG" + QString::number(i + 1) + "_" + QString::number(j + 1));
 			pBitOutG[i][j] = findChild<QCheckBox*>("checkBoxOutG" + QString::number(i + 1) + "_" + QString::number(j + 1));
 	
+			
+			pBitInG[i][j]->setText(ioMap.value("IN" + QString("%1").arg(i + 1) + QString::number(j, 16).toUpper()));
+			pBitOutG[i][j]->setText(ioMap.value("OUT" + QString("%1").arg(i + 1) + QString::number(j, 16).toUpper()));
+
 			connect(pBitOutG[i][j], &QCheckBox::clicked, [this, i, j]()
 			{
 				ioMutex.lock();
-				auto re = pBitOutG[i][j]->isChecked() ? dmc_write_can_outbit(mCardNo, i + 1, j, 0) : dmc_write_can_outbit(mCardNo, i + 1, j, 1);
+				auto re = pBitOutG[i][j]->isChecked() ? dmc_write_can_outbit(mCardNo, i + 1, j, IO_ON) : dmc_write_can_outbit(mCardNo, i + 1, j, IO_OFF);
 				ioMutex.unlock();
 			});
 		}
 	}
-	
-	pBitInG[0][0]->setText(QStringLiteral("治具有无放好检测"));			
-	pBitInG[0][1]->setText(QStringLiteral("送料气缸进")); 		    
-	pBitInG[0][2]->setText(QStringLiteral("送料气缸退"));			
-	pBitInG[0][3]->setText(QStringLiteral("升降气缸下降"));			
-	pBitInG[0][4]->setText(QStringLiteral("升降气缸上升"));			
-	pBitInG[0][5]->setText(QStringLiteral("真空吸料检测5"));			
-	pBitInG[0][6]->setText(QStringLiteral("真空吸料检测6"));			
-	pBitInG[0][7]->setText(QStringLiteral("真空吸料检测7"));			
-	pBitInG[0][8]->setText(QStringLiteral("真空吸料检测8"));			
-	pBitInG[0][9]->setText(QStringLiteral("固定气缸夹紧"));			
-	pBitInG[0][10]->setText(QStringLiteral("固定气缸松开"));			
-	pBitInG[0][11]->setText(QStringLiteral("1#升降气缸下降"));		
-	pBitInG[0][12]->setText(QStringLiteral("1#升降气缸上升"));		
-	pBitInG[0][13]->setText(QStringLiteral("真空吸料检测9"));			
-	pBitInG[0][14]->setText(QStringLiteral("真空吸料检测10"));		
-	pBitInG[0][15]->setText(QStringLiteral("真空吸料检测11"));		
-	//
-	pBitInG[1][0]->setText(QStringLiteral("真空吸料检测12"));
-	pBitInG[1][1]->setText(QStringLiteral("2.1#升降气缸下降"));
-	pBitInG[1][2]->setText(QStringLiteral("2.1#升降气缸上升"));
-	pBitInG[1][3]->setText(QStringLiteral("2.2#升降气缸下降"));
-	pBitInG[1][4]->setText(QStringLiteral("2.2#升降气缸上升"));
-	pBitInG[1][5]->setText(QStringLiteral("2.3#升降气缸下降"));
-	pBitInG[1][6]->setText(QStringLiteral("2.3#升降气缸上升"));
-	pBitInG[1][7]->setText(QStringLiteral("2.4#升降气缸下降"));
-	pBitInG[1][8]->setText(QStringLiteral("2.4#升降气缸上升"));
-	pBitInG[1][9]->setText(QStringLiteral("2#固定气缸夹紧"));
-	pBitInG[1][10]->setText(QStringLiteral("2#固定气缸松开"));
-	pBitInG[1][11]->setText(QStringLiteral("1#NG标记气缸下降"));
-	pBitInG[1][12]->setText(QStringLiteral("1#NG标记气缸上升"));
-	pBitInG[1][13]->setText(QStringLiteral("2#NG标记气缸下降"));
-	pBitInG[1][14]->setText(QStringLiteral("2#NG标记气缸上升"));
-	pBitInG[1][15]->setText(QStringLiteral("3#NG标记气缸下降"));
-	//
-	pBitInG[1][16]->setText(QStringLiteral("3#NG标记气缸上升"));
-	pBitInG[2][17]->setText(QStringLiteral("阻挡气缸下降"));
-	pBitInG[2][18]->setText(QStringLiteral("阻挡气缸上升"));
-	pBitInG[2][19]->setText(QStringLiteral("OK线 进料对射"));
-	pBitInG[2][20]->setText(QStringLiteral("OK线 出料对射1"));
-	pBitInG[2][21]->setText(QStringLiteral("OK线 出料对射2"));
-	pBitInG[2][22]->setText(QStringLiteral("NG线 进料反射1"));
-	pBitInG[2][23]->setText(QStringLiteral("备用"));
-	pBitInG[2][24]->setText(QStringLiteral("备用"));
-	pBitInG[2][10]->setText(QStringLiteral("NG线 阻挡位有料对射"));
-	pBitInG[2][11]->setText(QStringLiteral("NG线 出料对射"));
-	pBitInG[2][12]->setText(QStringLiteral("NG接料盒检测1"));
-	pBitInG[2][13]->setText(QStringLiteral("NG接料盒检测2"));
-	pBitInG[2][14]->setText(QStringLiteral("光栅"));
-	pBitInG[2][15]->setText(QStringLiteral("门磁"));
-	pBitInG[2][16]->setText(QStringLiteral("备用"));
-
-	//pBitOutG			
-	pBitOutG[0][0]->setText(QStringLiteral("真空破打开1"));
-	pBitOutG[0][1]->setText(QStringLiteral("真空吸打开2"));
-	pBitOutG[0][2]->setText(QStringLiteral("真空破打开2"));
-	pBitOutG[0][3]->setText(QStringLiteral("真空吸打开3"));
-	pBitOutG[0][4]->setText(QStringLiteral("真空破打开3"));
-	pBitOutG[0][5]->setText(QStringLiteral("真空吸打开4"));
-	pBitOutG[0][6]->setText(QStringLiteral("真空破打开4"));
-	pBitOutG[0][7]->setText(QStringLiteral("固定气缸夹紧"));
-	pBitOutG[0][8]->setText(QStringLiteral("固定气缸松开"));
-	pBitOutG[0][9]->setText(QStringLiteral("1#升降气缸下降"));
-	pBitOutG[0][10]->setText(QStringLiteral("1#升降气缸上升"));
-	pBitOutG[0][11]->setText(QStringLiteral("真空吸打开5"));
-	pBitOutG[0][12]->setText(QStringLiteral("真空破打开5"));
-	pBitOutG[0][13]->setText(QStringLiteral("真空吸打开6"));
-	pBitOutG[0][14]->setText(QStringLiteral("真空破打开6"));
-	pBitOutG[0][15]->setText(QStringLiteral("真空吸打开7"));
-	//																	
-	pBitOutG[1][0]->setText(QStringLiteral("真空破打开7"));
-	pBitOutG[1][1]->setText(QStringLiteral("真空吸打开8"));
-	pBitOutG[1][2]->setText(QStringLiteral("真空破打开8"));
-	pBitOutG[1][3]->setText(QStringLiteral("2#固定气缸夹紧"));
-	pBitOutG[1][4]->setText(QStringLiteral("2#固定气缸松开"));
-	pBitOutG[1][5]->setText(QStringLiteral("2.1#升降气缸下降"));
-	pBitOutG[1][6]->setText(QStringLiteral("2.1#升降气缸上升"));
-	pBitOutG[1][7]->setText(QStringLiteral("2.2#升降气缸下降"));
-	pBitOutG[1][8]->setText(QStringLiteral("2.2#升降气缸上升"));
-	pBitOutG[1][9]->setText(QStringLiteral("2.3#升降气缸下降"));
-	pBitOutG[1][10]->setText(QStringLiteral("2.3#升降气缸上升"));
-	pBitOutG[1][11]->setText(QStringLiteral("2.3#升降气缸下降"));
-	pBitOutG[1][12]->setText(QStringLiteral("2.3#升降气缸上升"));
-	pBitOutG[1][13]->setText(QStringLiteral("2.4#升降气缸下降"));
-	pBitOutG[1][14]->setText(QStringLiteral("2.4#升降气缸上升"));
-	pBitOutG[1][15]->setText(QStringLiteral("真空吸打开10"));
-	//
-	pBitOutG[2][0]->setText(QStringLiteral("真空破打开10"));
-	pBitOutG[2][1]->setText(QStringLiteral("真空吸打开11"));
-	pBitOutG[2][2]->setText(QStringLiteral("真空破打开11"));
-	pBitOutG[2][3]->setText(QStringLiteral("真空吸打开12"));
-	pBitOutG[2][4]->setText(QStringLiteral("真空破打开12"));
-	pBitOutG[2][5]->setText(QStringLiteral("1#NG标记气缸下降"));
-	pBitOutG[2][6]->setText(QStringLiteral("1#NG标记气缸上升"));
-	pBitOutG[2][7]->setText(QStringLiteral("2#NG标记气缸下降"));
-	pBitOutG[2][8]->setText(QStringLiteral("2#NG标记气缸上升"));
-	pBitOutG[2][9]->setText(QStringLiteral("备用"));
-	pBitOutG[2][10]->setText(QStringLiteral("备用"));
-	pBitOutG[2][11]->setText(QStringLiteral("阻挡气缸下降"));
-	pBitOutG[2][12]->setText(QStringLiteral("阻挡气缸上升"));
-	pBitOutG[2][13]->setText(QStringLiteral("备用"));
-	pBitOutG[2][14]->setText(QStringLiteral("备用"));
-	pBitOutG[2][15]->setText(QStringLiteral("备用"));
 	
 }
 
@@ -368,7 +499,6 @@ void HSMeasure::showLogToUi()
 
 	QApplication::processEvents();
 }
-
 
 void HSMeasure::saveValueToLog(const FIX_VALUE& fixValue)
 {

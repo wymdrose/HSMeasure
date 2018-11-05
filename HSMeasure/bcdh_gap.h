@@ -26,12 +26,15 @@ public:
 	bool getGapValue(SLOTPOS_NO, GAP_NO, float&);
 	bool getGapValue(const GAP_NO gapNo, float gapValue[]);
 	bool getGapValue();	
+	bool getGapValueFront();
+	bool getGapValueSide();
 
 signals:
 	void showMsgSignal(const QString&);
 	void showDialogSignal(const QString&);
 
 private:
+	int mCurStep = 0;
 	HSMeasure* mpHSMeasure;
 };
 
